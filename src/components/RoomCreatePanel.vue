@@ -1,10 +1,10 @@
 <template>
-  <div class="bg-[#3d332d] rounded-xl shadow-lg p-8 w-full max-w-xs flex flex-col items-center">
+  <div class="bg-[#18181b] rounded-xl shadow-lg p-8 w-full max-w-xs flex flex-col items-center border border-gray-700">
     <img src="/favicon.svg" alt="렉시오 로고" class="w-16 h-16 mb-4" />
-    <h3 class="text-xl font-bold text-white mb-4">Create a new game</h3>
+    <h3 class="text-xl font-bold text-highlight-yellow mb-4">Create a new game</h3>
     <form class="flex flex-col gap-4 w-full" @submit.prevent="createRoom">
-      <input v-model="name" type="text" placeholder="Room Name (optional)" class="rounded-lg px-4 py-2 bg-gray-100 text-gray-900 focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition" />
-      <select v-model="players" class="rounded-lg px-4 py-2 bg-gray-100 text-gray-900 focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition">
+      <input v-model="name" type="text" placeholder="Room Name (optional)" class="rounded-lg px-4 py-2 bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition placeholder-gray-400" />
+      <select v-model="players" class="rounded-lg px-4 py-2 bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition">
         <option value="3">3 Players</option>
         <option value="4">4 Players</option>
         <option value="5">5 Players</option>
@@ -13,8 +13,8 @@
         <input type="checkbox" v-model="usePassword" class="accent-highlight-yellow" />
         비밀번호 설정
       </label>
-      <input v-if="usePassword" v-model="password" type="password" placeholder="Password" class="rounded-lg px-4 py-2 bg-gray-100 text-gray-900 focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition" />
-      <button type="submit" :disabled="loading" class="bg-green-300 text-gray-900 font-bold rounded-lg px-4 py-2 mt-2 shadow-md transition hover:bg-green-400/90 disabled:opacity-50">
+      <input v-if="usePassword" v-model="password" type="password" placeholder="Password" class="rounded-lg px-4 py-2 bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition placeholder-gray-400" />
+      <button type="submit" :disabled="loading" class="bg-highlight-yellow text-gray-900 font-bold rounded-lg px-4 py-2 mt-2 shadow-md transition hover:bg-yellow-400/90 disabled:opacity-50">
         <span v-if="loading">Creating...</span>
         <span v-else>Create</span>
       </button>
