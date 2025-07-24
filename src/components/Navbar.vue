@@ -11,8 +11,14 @@
         <router-link to="/game" class="hover:text-highlight-yellow transition">게임</router-link>
         <router-link to="/rules" class="hover:text-highlight-yellow transition">규칙</router-link>
         <router-link to="/profile" class="hover:text-highlight-yellow transition">프로필</router-link>
-        <router-link to="/login" class="hover:text-highlight-indigo transition">로그인</router-link>
-        <router-link to="/register" class="hover:text-highlight-indigo transition">회원가입</router-link>
+        <template v-if="user">
+          <span class="text-sm text-gray-300">{{ user.email }}</span>
+          <button @click="handleLogout" class="ml-2 bg-gray-700 text-white rounded-xl px-3 py-1 text-sm hover:bg-gray-600 transition">로그아웃</button>
+        </template>
+        <template v-else>
+          <router-link to="/login" class="hover:text-highlight-indigo transition">로그인</router-link>
+          <router-link to="/register" class="hover:text-highlight-indigo transition">회원가입</router-link>
+        </template>
       </div>
       <div class="md:hidden">
         <!-- 모바일 메뉴(추후 구현) -->
@@ -22,7 +28,23 @@
 </template>
 
 <script setup>
-// 추후: 로그인 상태에 따라 버튼 변경 예정
+import { useAuthStore } from '../store/auth.js'
+import { storeToRefs } from 'pinia'
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+
+const auth = useAuthStore()
+const { user, loading } = storeToRefs(auth)
+const router = useRouter()
+
+onMounted(() => {
+  auth.fetchUser()
+})
+
+function handleLogout() {
+  auth.logout()
+  router.push('/')
+}
 </script>
 
 <style scoped>

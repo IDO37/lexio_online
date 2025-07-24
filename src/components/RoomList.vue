@@ -3,12 +3,13 @@
     <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-2 gap-2">
       <div class="text-sm text-gray-300 font-semibold">방 목록</div>
       <button
-        class="bg-highlight-indigo text-white font-semibold rounded-xl px-4 py-2 text-base shadow-md transition hover:bg-indigo-500/80 focus:outline-none focus:ring-2 focus:ring-highlight-indigo"
+        class="bg-highlight-indigo text-white font-semibold rounded-xl px-4 py-2 text-base shadow-md transition hover:bg-indigo-500/80 focus:outline-none focus:ring-2 focus:ring-highlight-indigo disabled:opacity-50"
         @click="createRoom"
         aria-label="방 생성"
-        :disabled="loading"
+        :disabled="loading || !isAuthed"
       >방 생성</button>
     </div>
+    <div v-if="!isAuthed" class="text-xs text-yellow-400 mb-2">로그인해야 방 생성/입장이 가능합니다.</div>
     <div v-if="loading" class="text-center text-gray-400 py-8">불러오는 중...</div>
     <div v-else-if="error" class="text-center text-red-400 py-8">{{ error }}</div>
     <div v-else class="flex flex-col gap-2 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
@@ -27,8 +28,9 @@
           <span v-else class="ml-2 text-xs text-green-400">대기중</span>
         </div>
         <button
-          class="bg-highlight-yellow text-gray-900 font-semibold rounded-xl px-4 py-2 text-base shadow-md transition hover:bg-yellow-400/80 focus:outline-none focus:ring-2 focus:ring-highlight-yellow"
+          class="bg-highlight-yellow text-gray-900 font-semibold rounded-xl px-4 py-2 text-base shadow-md transition hover:bg-yellow-400/80 focus:outline-none focus:ring-2 focus:ring-highlight-yellow disabled:opacity-50"
           @click.stop="joinRoom(room)"
+          :disabled="!isAuthed"
           aria-label="{{ room.name }} 방 입장"
         >입장</button>
       </div>
@@ -37,17 +39,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { supabase } from '../lib/supabase.js'
+import { useAuthStore } from '../store/auth.js'
+import { useRouter } from 'vue-router'
 
+const auth = useAuthStore()
 const rooms = ref([])
 const loading = ref(false)
 const error = ref('')
+const router = useRouter()
+
+const isAuthed = computed(() => !!auth.user)
 
 async function fetchRooms() {
   loading.value = true
   error.value = ''
-  const { data, error: err } = await supabase.from('rooms').select('*').order('created_at', { ascending: false })
+  const { data, error: err } = await supabase.from('LO_rooms').select('*').order('created_at', { ascending: false })
   if (err) {
     error.value = '방 목록을 불러오지 못했습니다.'
     rooms.value = []
@@ -60,20 +68,26 @@ async function fetchRooms() {
 onMounted(fetchRooms)
 
 async function createRoom() {
+  if (!isAuthed.value) return
   const name = prompt('방 이름을 입력하세요')
   if (!name) return
   loading.value = true
-  const { data, error: err } = await supabase.from('rooms').insert([{ name, players: 1, status: 'waiting' }]).select()
+  const { data, error: err } = await supabase.from('LO_rooms').insert([{ name, players: 1, status: 'waiting', created_by: auth.user.id }]).select()
   if (err) {
     error.value = '방 생성 실패: ' + err.message
   } else if (data && data[0]) {
     rooms.value.unshift(data[0])
+    router.push(`/game/${data[0].id}`)
   }
   loading.value = false
 }
 
 function joinRoom(room) {
-  alert(`${room.name}에 입장합니다! (실제 구현은 추후)`)
+  if (!isAuthed.value) {
+    alert('로그인 후 입장할 수 있습니다.')
+    return
+  }
+  router.push(`/game/${room.id}`)
 }
 </script>
 

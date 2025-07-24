@@ -10,6 +10,7 @@ import Profile from '../pages/Profile.vue'
 const routes = [
   { path: '/', component: Home },
   { path: '/game', component: Game },
+  { path: '/game/:roomId', component: Game, props: true },
   { path: '/login', component: Login },
   { path: '/register', component: Register },
   { path: '/rules', component: Rules },
