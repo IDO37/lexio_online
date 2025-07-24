@@ -6,9 +6,12 @@
         class="bg-highlight-indigo text-white font-semibold rounded-xl px-4 py-2 text-base shadow-md transition hover:bg-indigo-500/80 focus:outline-none focus:ring-2 focus:ring-highlight-indigo"
         @click="createRoom"
         aria-label="방 생성"
+        :disabled="loading"
       >방 생성</button>
     </div>
-    <div class="flex flex-col gap-2 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+    <div v-if="loading" class="text-center text-gray-400 py-8">불러오는 중...</div>
+    <div v-else-if="error" class="text-center text-red-400 py-8">{{ error }}</div>
+    <div v-else class="flex flex-col gap-2 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
       <div
         v-for="room in rooms"
         :key="room.id"
@@ -34,28 +37,42 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { supabase } from '../lib/supabase.js'
 
-const rooms = ref([
-  { id: 'r1', name: '방 1', players: 3, status: 'waiting' },
-  { id: 'r2', name: '방 2', players: 4, status: 'playing' },
-  { id: 'r3', name: '방 3', players: 2, status: 'waiting' }
-])
+const rooms = ref([])
+const loading = ref(false)
+const error = ref('')
+
+async function fetchRooms() {
+  loading.value = true
+  error.value = ''
+  const { data, error: err } = await supabase.from('rooms').select('*').order('created_at', { ascending: false })
+  if (err) {
+    error.value = '방 목록을 불러오지 못했습니다.'
+    rooms.value = []
+  } else {
+    rooms.value = data || []
+  }
+  loading.value = false
+}
+
+onMounted(fetchRooms)
 
 async function createRoom() {
   const name = prompt('방 이름을 입력하세요')
   if (!name) return
-  // 실제 Supabase 연동 예시
-  // const { data, error } = await supabase.from('rooms').insert([{ name, players: 1, status: 'waiting' }])
-  // if (!error) rooms.value.push({ id: data[0].id, name, players: 1, status: 'waiting' })
-  // else alert('방 생성 실패')
-  // Mock
-  rooms.value.push({ id: `r${rooms.value.length + 1}`, name, players: 1, status: 'waiting' })
+  loading.value = true
+  const { data, error: err } = await supabase.from('rooms').insert([{ name, players: 1, status: 'waiting' }]).select()
+  if (err) {
+    error.value = '방 생성 실패: ' + err.message
+  } else if (data && data[0]) {
+    rooms.value.unshift(data[0])
+  }
+  loading.value = false
 }
 
 function joinRoom(room) {
-  // 실제 입장 로직: 라우팅, 상태 갱신, 알림 등
   alert(`${room.name}에 입장합니다! (실제 구현은 추후)`)
 }
 </script>
