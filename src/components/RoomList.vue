@@ -2,12 +2,6 @@
   <div class="bg-gray-700 rounded-xl shadow-md p-4 flex flex-col gap-2 w-full max-w-md mx-auto">
     <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-2 gap-2">
       <div class="text-sm text-gray-300 font-semibold">방 목록</div>
-      <button
-        class="bg-highlight-indigo text-white font-semibold rounded-xl px-4 py-2 text-base shadow-md transition hover:bg-indigo-500/80 focus:outline-none focus:ring-2 focus:ring-highlight-indigo disabled:opacity-50"
-        @click="createRoom"
-        aria-label="방 생성"
-        :disabled="loading || !isAuthed"
-      >방 생성</button>
     </div>
     <div v-if="!isAuthed" class="text-xs text-yellow-400 mb-2">로그인해야 방 생성/입장이 가능합니다.</div>
     <div v-if="loading" class="text-center text-gray-400 py-8">불러오는 중...</div>

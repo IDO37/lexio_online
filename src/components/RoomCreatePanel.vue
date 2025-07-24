@@ -5,20 +5,15 @@
     <form class="flex flex-col gap-4 w-full" @submit.prevent="createRoom">
       <input v-model="name" type="text" placeholder="Room Name (optional)" class="rounded-lg px-4 py-2 bg-gray-100 text-gray-900 focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition" />
       <select v-model="players" class="rounded-lg px-4 py-2 bg-gray-100 text-gray-900 focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition">
-        <option value="2">2 Players</option>
         <option value="3">3 Players</option>
         <option value="4">4 Players</option>
+        <option value="5">5 Players</option>
       </select>
-      <select v-model="turnLimit" class="rounded-lg px-4 py-2 bg-gray-100 text-gray-900 focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition">
-        <option value="2">2 min/turn</option>
-        <option value="3">3 min/turn</option>
-        <option value="5">5 min/turn</option>
-      </select>
-      <select v-model="isPublic" class="rounded-lg px-4 py-2 bg-gray-100 text-gray-900 focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition">
-        <option :value="true">Public</option>
-        <option :value="false">Private</option>
-      </select>
-      <input v-if="!isPublic" v-model="password" type="password" placeholder="Password (optional)" class="rounded-lg px-4 py-2 bg-gray-100 text-gray-900 focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition" />
+      <label class="flex items-center gap-2 text-gray-200">
+        <input type="checkbox" v-model="usePassword" class="accent-highlight-yellow" />
+        비밀번호 설정
+      </label>
+      <input v-if="usePassword" v-model="password" type="password" placeholder="Password" class="rounded-lg px-4 py-2 bg-gray-100 text-gray-900 focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition" />
       <button type="submit" :disabled="loading" class="bg-green-300 text-gray-900 font-bold rounded-lg px-4 py-2 mt-2 shadow-md transition hover:bg-green-400/90 disabled:opacity-50">
         <span v-if="loading">Creating...</span>
         <span v-else>Create</span>
@@ -34,9 +29,8 @@ import { useAuthStore } from '../store/auth.js'
 import { useRouter } from 'vue-router'
 
 const name = ref('')
-const players = ref(2)
-const turnLimit = ref(2)
-const isPublic = ref(true)
+const players = ref(3)
+const usePassword = ref(false)
 const password = ref('')
 const loading = ref(false)
 const auth = useAuthStore()
@@ -53,9 +47,8 @@ async function createRoom() {
     status: 'waiting',
     created_by: auth.user.id,
     max_players: players.value,
-    turn_limit: turnLimit.value,
-    is_public: isPublic.value,
-    password: isPublic.value ? null : password.value
+    is_public: !usePassword.value,
+    password: usePassword.value ? password.value : null
   }).select()
   loading.value = false
   if (error) {
