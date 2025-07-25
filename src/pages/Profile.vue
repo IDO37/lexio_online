@@ -12,7 +12,7 @@ const ranking = ref([])
 async function fetchStats() {
   if (!auth.user) return
   loading.value = true
-  const { data, error: err } = await supabase.from('LO_stats').select('*').eq('user_id', auth.user.id).single()
+  const { data, error: err } = await supabase.from('lo_stats').select('*').eq('user_id', auth.user.id).single()
   if (err) {
     error.value = '전적 정보를 불러올 수 없습니다.'
     stats.value = null

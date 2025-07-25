@@ -54,18 +54,18 @@ async function submitSelected() {
   if (!props.isMyTurn || submitting.value) return
   submitting.value = true
   const selectedCards = selectedIdxs.value.map(i => props.myHand[i])
-  // LO_cards에서 in_hand=false로 변경
+  // lo_cards에서 in_hand=false로 변경
   for (const card of selectedCards) {
-    await supabase.from('LO_cards').update({ in_hand: false }).eq('game_id', card.game_id).eq('owner_id', card.owner_id).eq('suit', card.suit).eq('rank', card.rank)
+    await supabase.from('lo_cards').update({ in_hand: false }).eq('game_id', card.game_id).eq('owner_id', card.owner_id).eq('suit', card.suit).eq('rank', card.rank)
   }
-  // LO_game_turns에 기록
-  await supabase.from('LO_game_turns').insert({
+  // lo_game_turns에 기록
+  await supabase.from('lo_game_turns').insert({
     game_id: selectedCards[0]?.game_id,
     player_id: auth.user.id,
     action: 'play',
     cards: selectedCards
   })
-  // 턴 넘기기: LO_games.current_turn_user_id를 다음 플레이어로 변경 (간단 mock)
+  // 턴 넘기기: lo_games.current_turn_user_id를 다음 플레이어로 변경 (간단 mock)
   // 실제로는 서버에서 다음 턴 로직을 처리하는 것이 안전
   emit('after-submit')
   selectedIdxs.value = []
