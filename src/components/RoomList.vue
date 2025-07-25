@@ -49,7 +49,7 @@ const isAuthed = computed(() => !!auth.user)
 async function fetchRooms() {
   loading.value = true
   error.value = ''
-  const { data, error: err } = await supabase.from('LO_rooms').select('*').order('created_at', { ascending: false })
+  const { data, error: err } = await supabase.from('lo_rooms').select('*').order('created_at', { ascending: false })
   if (err) {
     error.value = '방 목록을 불러오지 못했습니다.'
     rooms.value = []
@@ -66,7 +66,7 @@ async function createRoom() {
   const name = prompt('방 이름을 입력하세요')
   if (!name) return
   loading.value = true
-  const { data, error: err } = await supabase.from('LO_rooms').insert([{ name, players: 1, status: 'waiting', created_by: auth.user.id }]).select()
+  const { data, error: err } = await supabase.from('lo_rooms').insert([{ name, players: 1, status: 'waiting', created_by: auth.user.id }]).select()
   if (err) {
     error.value = '방 생성 실패: ' + err.message
   } else if (data && data[0]) {

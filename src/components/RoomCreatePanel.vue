@@ -42,7 +42,7 @@ async function createRoom() {
     return
   }
   loading.value = true
-  const { data, error } = await supabase.from('LO_rooms').insert({
+  const { data, error } = await supabase.from('lo_rooms').insert({
     name: name.value,
     status: 'waiting',
     created_by: auth.user.id,
