@@ -42,19 +42,47 @@ async function createRoom() {
     return
   }
   loading.value = true
-  const { data, error } = await supabase.from('lo_rooms').insert({
-    name: name.value,
-    status: 'waiting',
-    created_by: auth.user.id,
-    max_players: players.value,
-    is_public: !usePassword.value,
-    password: usePassword.value ? password.value : null
-  }).select()
-  loading.value = false
-  if (error) {
-    alert('방 생성 실패: ' + error.message)
-  } else if (data && data[0]) {
-    router.push(`/game/${data[0].id}`)
+  
+  try {
+    // 방 생성
+    const { data, error } = await supabase.from('lo_rooms').insert({
+      name: name.value || `Room ${Date.now()}`,
+      status: 'waiting',
+      created_by: auth.user.id,
+      max_players: players.value,
+      is_public: !usePassword.value,
+      password: usePassword.value ? password.value : null,
+      players: 1 // 생성자가 첫 번째 플레이어
+    }).select()
+    
+    if (error) {
+      alert('방 생성 실패: ' + error.message)
+      return
+    }
+    
+    if (data && data[0]) {
+      const room = data[0]
+      
+      // 방 생성자를 플레이어로 추가
+      const { error: joinError } = await supabase
+        .from('lo_room_players')
+        .insert({
+          room_id: room.id,
+          user_id: auth.user.id,
+          joined_at: new Date().toISOString()
+        })
+      
+      if (joinError) {
+        console.error('플레이어 추가 실패:', joinError)
+      }
+      
+      // 생성된 방으로 이동
+      router.push(`/game/${room.id}`)
+    }
+  } catch (err) {
+    alert('방 생성 중 오류가 발생했습니다.')
+  } finally {
+    loading.value = false
   }
 }
 </script> 
