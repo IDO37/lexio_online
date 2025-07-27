@@ -179,10 +179,11 @@
                   </div>
                   
                   <!-- 관리 버튼 -->
-                  <div v-if="isRoomOwner && !player.isMe" class="flex gap-1">
+                  <div v-if="isRoomOwner && !player.isMe && player.id !== room.created_by" class="flex gap-1">
                     <button
                       @click="kickPlayer(player.id)"
                       class="bg-red-600 text-white text-xs px-2 py-1 rounded transition hover:bg-red-700"
+                      :title="`${player.email}을(를) 방에서 추방합니다`"
                     >
                       추방
                     </button>
@@ -700,19 +701,12 @@ async function startGame() {
     
     console.log('초기 턴 플레이어:', initialTurnPlayer)
     
-    // 게임 생성
+    // 게임 생성 - 최소한의 필수 필드만 포함
     const gameInsertData = {
-      room_id: roomId.value,
-      status: 'playing',
-      current_turn_user_id: initialTurnPlayer,
-      created_by: auth.user?.id
+      room_id: roomId.value
     }
     
     // 선택적 필드들 (테이블에 존재하는 경우에만 추가)
-    if (roomId.value) {
-      gameInsertData.room_id = roomId.value
-    }
-    
     if (initialTurnPlayer) {
       gameInsertData.current_turn_user_id = initialTurnPlayer
     }
@@ -721,13 +715,58 @@ async function startGame() {
       gameInsertData.created_by = auth.user.id
     }
     
-    console.log('게임 생성 데이터:', gameInsertData)
+    // status 필드는 기본값이 있을 수 있으므로 조건부로 추가
+    gameInsertData.status = 'playing'
     
-    const { data: gameData, error: gameError } = await supabase
-      .from('lo_games')
-      .insert(gameInsertData)
-      .select()
-      .single()
+    console.log('게임 생성 데이터:', JSON.stringify(gameInsertData, null, 2))
+    
+    // 단계별로 게임 생성 시도
+    let gameData = null
+    let gameError = null
+    
+    // 1단계: room_id만으로 시도
+    try {
+      console.log('1단계: room_id만으로 게임 생성 시도')
+      const { data, error } = await supabase
+        .from('lo_games')
+        .insert({ room_id: roomId.value })
+        .select()
+        .single()
+      
+      if (!error && data) {
+        gameData = data
+        console.log('1단계 성공:', gameData)
+      } else {
+        gameError = error
+        console.error('1단계 실패:', error)
+      }
+    } catch (err) {
+      gameError = err
+      console.error('1단계 예외:', err)
+    }
+    
+    // 1단계가 실패하면 2단계: 더 많은 필드로 시도
+    if (!gameData && gameError) {
+      try {
+        console.log('2단계: 추가 필드로 게임 생성 시도')
+        const { data, error } = await supabase
+          .from('lo_games')
+          .insert(gameInsertData)
+          .select()
+          .single()
+        
+        if (!error && data) {
+          gameData = data
+          console.log('2단계 성공:', gameData)
+        } else {
+          gameError = error
+          console.error('2단계 실패:', error)
+        }
+      } catch (err) {
+        gameError = err
+        console.error('2단계 예외:', err)
+      }
+    }
     
     if (gameError) {
       console.error('게임 생성 오류:', gameError)
@@ -737,10 +776,37 @@ async function startGame() {
         details: gameError.details,
         hint: gameError.hint
       })
+      console.error('게임 생성 오류 전체 객체:', JSON.stringify(gameError, null, 2))
       throw gameError
     }
     
     console.log('게임 생성 성공:', gameData.id)
+    
+    // 게임 생성 후 추가 필드 업데이트
+    if (gameData) {
+      try {
+        const updateData = {}
+        if (initialTurnPlayer) updateData.current_turn_user_id = initialTurnPlayer
+        if (auth.user?.id) updateData.created_by = auth.user.id
+        updateData.status = 'playing'
+        
+        if (Object.keys(updateData).length > 0) {
+          console.log('게임 추가 필드 업데이트:', updateData)
+          const { error: updateError } = await supabase
+            .from('lo_games')
+            .update(updateData)
+            .eq('id', gameData.id)
+          
+          if (updateError) {
+            console.error('게임 업데이트 오류:', updateError)
+          } else {
+            console.log('게임 업데이트 성공')
+          }
+        }
+      } catch (updateErr) {
+        console.error('게임 업데이트 중 예외:', updateErr)
+      }
+    }
     
     // 카드 분배 (실제 사용자만 DB에 저장)
     await distributeCards(gameData.id)
@@ -783,9 +849,29 @@ async function startGame() {
 }
 
 async function kickPlayer(playerId) {
-  if (!isRoomOwner.value || playerId === auth.user?.id) return
+  // 방장이 아니거나 자신을 추방하려는 경우
+  if (!isRoomOwner.value || playerId === auth.user?.id) {
+    console.log('추방 권한이 없거나 자신을 추방하려고 합니다.')
+    return
+  }
+  
+  // 방장을 추방하려는 경우
+  if (playerId === room.value?.created_by) {
+    console.log('방장은 추방할 수 없습니다.')
+    error.value = '방장은 추방할 수 없습니다.'
+    return
+  }
+  
+  // CPU 플레이어인 경우
+  if (playerId.startsWith('cpu')) {
+    console.log('CPU 플레이어는 추방할 수 없습니다. CPU 제거 기능을 사용하세요.')
+    error.value = 'CPU 플레이어는 추방할 수 없습니다.'
+    return
+  }
   
   try {
+    console.log('플레이어 추방 시작:', playerId)
+    
     // 플레이어를 방에서 제거
     const { error } = await supabase
       .from('lo_room_players')
@@ -793,13 +879,21 @@ async function kickPlayer(playerId) {
       .eq('room_id', roomId.value)
       .eq('user_id', playerId)
     
-    if (error) throw error
+    if (error) {
+      console.error('플레이어 추방 DB 오류:', error)
+      throw error
+    }
+    
+    console.log('플레이어 추방 성공:', playerId)
     
     // 플레이어 목록 새로고침
     await loadPlayers()
     
     // 방의 플레이어 수 업데이트
     await updateRoomPlayerCount(players.value.length)
+    
+    // 성공 메시지
+    console.log('플레이어 추방 완료')
     
   } catch (err) {
     console.error('플레이어 추방 오류:', err)
