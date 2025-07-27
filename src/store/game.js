@@ -1,6 +1,10 @@
 import { defineStore } from 'pinia'
 import { supabase } from '../lib/supabase.js'
 
+function isCpuPlayer(playerId) {
+  return typeof playerId === 'string' && playerId.startsWith('cpu')
+}
+
 export const useGameStore = defineStore('game', {
   state: () => ({
     // 게임 상태
@@ -25,16 +29,20 @@ export const useGameStore = defineStore('game', {
   
   getters: {
     isMyTurn: (state) => state.currentTurnUserId === state.myId,
-    currentPlayer: (state) => state.players.find(p => p.id === state.currentTurnUserId),
+    currentPlayer: (state) => state.players.find(p => p.id === state.currentTurnUserId) || null,
     canPlay: (state) => {
       if (!state.isMyTurn) return false
       if (state.selectedCards.length === 0) return false
       
-      const combo = getCombo(state.selectedCards)
+      // 선택된 카드 인덱스로부터 실제 카드 객체들 가져오기
+      const selectedCards = state.selectedCards.map(i => state.myHand[i]).filter(Boolean)
+      if (selectedCards.length === 0) return false
+      
+      const combo = getCombo(selectedCards)
       if (!combo) return false
       
       // 첫 턴이거나 마지막 플레이어가 패스한 경우
-      if (!state.lastPlayedCombo) return true
+      if (!state.lastPlayedCombo || state.lastPlayedCombo.type === 'pass') return true
       
       // 같은 조합인 경우 높은 카드가 더 높아야 함
       if (combo.type === state.lastPlayedCombo.type) {
@@ -65,8 +73,17 @@ export const useGameStore = defineStore('game', {
       
       this.loading = true
       try {
-        const selectedCards = this.selectedCards.map(i => this.myHand[i])
+        const selectedCards = this.selectedCards.map(i => this.myHand[i]).filter(Boolean)
+        if (selectedCards.length === 0) {
+          this.error = '선택된 카드가 없습니다.'
+          return
+        }
+        
         const combo = getCombo(selectedCards)
+        if (!combo) {
+          this.error = '유효하지 않은 카드 조합입니다.'
+          return
+        }
         
         // 카드를 게임 보드에 제출
         await this.submitCardsToBoard(selectedCards, combo)
@@ -78,6 +95,7 @@ export const useGameStore = defineStore('game', {
         await this.nextTurn()
         
         this.selectedCards = []
+        this.error = null
       } catch (error) {
         this.error = '카드 제출 중 오류가 발생했습니다.'
         console.error('Play cards error:', error)
@@ -92,8 +110,25 @@ export const useGameStore = defineStore('game', {
       
       this.loading = true
       try {
+        // 패스 기록
+        if (this.gameId && this.myId) {
+          const { error } = await supabase
+            .from('lo_game_turns')
+            .insert({
+              game_id: this.gameId,
+              player_id: this.myId,
+              action: 'pass',
+              cards: [],
+              combo_type: null,
+              combo_value: null
+            })
+          
+          if (error) throw error
+        }
+        
         await this.nextTurn()
         this.selectedCards = []
+        this.error = null
       } catch (error) {
         this.error = '패스 중 오류가 발생했습니다.'
         console.error('Pass error:', error)
@@ -104,6 +139,10 @@ export const useGameStore = defineStore('game', {
     
     // 카드를 게임 보드에 제출
     async submitCardsToBoard(cards, combo) {
+      if (!this.gameId || !this.myId) {
+        throw new Error('게임 ID 또는 사용자 ID가 없습니다.')
+      }
+      
       const { error } = await supabase
         .from('lo_game_turns')
         .insert({
@@ -133,6 +172,8 @@ export const useGameStore = defineStore('game', {
     
     // 다음 턴으로 넘기기
     async nextTurn() {
+      if (!this.gameId || !this.players.length) return
+      
       const currentIndex = this.players.findIndex(p => p.id === this.currentTurnUserId)
       const nextIndex = (currentIndex + 1) % this.players.length
       const nextPlayerId = this.players[nextIndex].id
@@ -145,6 +186,12 @@ export const useGameStore = defineStore('game', {
       if (error) throw error
       
       this.currentTurnUserId = nextPlayerId
+      // CPU 턴이면 자동 플레이
+      if (isCpuPlayer(nextPlayerId)) {
+        setTimeout(() => {
+          this.cpuPlay(nextPlayerId)
+        }, 1200)
+      }
     },
     
     // 게임 상태 초기화
@@ -157,21 +204,82 @@ export const useGameStore = defineStore('game', {
       this.myId = myId
       this.selectedCards = []
       this.error = null
+      this.loading = false
     },
     
     // 내 패 설정
     setMyHand(cards) {
-      this.myHand = cards
+      this.myHand = cards || []
     },
     
     // 마지막 플레이 정보 업데이트
     updateLastPlay(turnData) {
+      if (!turnData) return
+      
       this.lastPlayedCards = turnData.cards || []
       this.lastPlayedCombo = turnData.combo_type ? {
         type: turnData.combo_type,
         value: turnData.combo_value
       } : null
       this.lastPlayedPlayerId = turnData.player_id
+    },
+    async cpuPlay(cpuId) {
+      // CPU의 패 불러오기
+      const { data: hand } = await supabase
+        .from('lo_cards')
+        .select('*')
+        .eq('game_id', this.gameId)
+        .eq('owner_id', cpuId)
+        .eq('in_hand', true)
+      if (!hand || hand.length === 0) {
+        await this.cpuPass(cpuId)
+        return
+      }
+      // 가능한 조합 찾기 (싱글, 페어, 트리플, ...)
+      let playCards = null
+      for (let n = 1; n <= Math.min(5, hand.length); n++) {
+        // n장 조합 중 유효한 것
+        const combs = getCombinations(hand, n)
+        for (const comb of combs) {
+          const combo = getCombo(comb)
+          if (!combo) continue
+          // 현재 보드보다 높은 조합만 제출
+          if (!this.lastPlayedCombo || combo.type === this.lastPlayedCombo.type && getComboValue(combo) > getComboValue(this.lastPlayedCombo) || getComboRank(combo.type) > getComboRank(this.lastPlayedCombo?.type)) {
+            playCards = comb
+            break
+          }
+        }
+        if (playCards) break
+      }
+      if (playCards) {
+        // 제출
+        await this.submitCardsToBoard(playCards, getCombo(playCards))
+        await this.removeCpuCardsFromHand(cpuId, playCards)
+        await this.nextTurn()
+      } else {
+        // 패스
+        await this.cpuPass(cpuId)
+      }
+    },
+    async cpuPass(cpuId) {
+      await supabase.from('lo_game_turns').insert({
+        game_id: this.gameId,
+        player_id: cpuId,
+        action: 'pass',
+        cards: [],
+        combo_type: null,
+        combo_value: null
+      })
+      await this.nextTurn()
+    },
+    async removeCpuCardsFromHand(cpuId, cards) {
+      for (const card of cards) {
+        await supabase.from('lo_cards').update({ in_hand: false })
+          .eq('game_id', card.game_id)
+          .eq('owner_id', cpuId)
+          .eq('suit', card.suit)
+          .eq('rank', card.rank)
+      }
     }
   }
 })
@@ -279,4 +387,20 @@ export function getComboName(comboType) {
     'single': '싱글'
   }
   return names[comboType] || '알 수 없음'
+} 
+
+// 조합 생성 함수 (n장 중복 없는 조합)
+function getCombinations(arr, n) {
+  const result = []
+  const f = (prefix, rest, n) => {
+    if (n === 0) {
+      result.push(prefix)
+      return
+    }
+    for (let i = 0; i < rest.length; i++) {
+      f([...prefix, rest[i]], rest.slice(i + 1), n - 1)
+    }
+  }
+  f([], arr, n)
+  return result
 } 

@@ -55,31 +55,181 @@
             <span v-if="room.status === 'playing'" class="text-sm text-highlight-red">진행중</span>
             <span v-else class="text-sm text-green-400">대기중</span>
           </div>
-          <button
-            @click="leaveRoom"
-            class="bg-red-600 text-white font-semibold rounded-lg px-4 py-2 transition hover:bg-red-700"
-          >
-            방 나가기
-          </button>
+          <div class="flex gap-2">
+            <button
+              v-if="room.status === 'waiting' && isRoomOwner"
+              @click="startGame"
+              :disabled="!canStartGame"
+              class="bg-highlight-red text-white font-semibold rounded-lg px-4 py-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              :class="canStartGame ? 'hover:bg-highlight-red-dark' : ''"
+            >
+              게임 시작
+            </button>
+            <button
+              @click="leaveRoom"
+              class="bg-red-600 text-white font-semibold rounded-lg px-4 py-2 transition hover:bg-red-700"
+            >
+              방 나가기
+            </button>
+          </div>
+        </div>
+        
+        <!-- 게임 시작 조건 경고 -->
+        <div v-if="room.status === 'waiting' && isRoomOwner && !canStartGame" class="bg-yellow-600 bg-opacity-20 border border-yellow-600 rounded-lg p-4">
+          <div class="text-yellow-400 font-semibold mb-2">게임 시작 조건</div>
+          <div class="text-yellow-300 text-sm">
+            최소 2명 이상의 플레이어가 필요합니다. (현재: {{ players.length }}명)
+          </div>
         </div>
         
         <!-- 게임 컨텐츠 -->
-        <div class="flex flex-col lg:flex-row gap-6">
+        <div v-if="room.status === 'playing'" class="flex flex-col lg:flex-row gap-6">
           <!-- 게임 보드 -->
           <div class="flex-1">
-            <GameBoard :board="gameBoard" :currentPlayer="currentPlayer" />
+            <GameBoard 
+              :currentPlayer="gameStore.currentPlayer"
+              :isMyTurn="gameStore.isMyTurn"
+              :lastPlayedCards="gameStore.lastPlayedCards"
+              :lastPlayedCombo="gameStore.lastPlayedCombo"
+              :lastPlayedPlayerName="lastPlayedPlayerName"
+              :remainingCards="totalRemainingCards"
+              :gameStatus="gameStore.status"
+            />
           </div>
           <!-- 플레이어 패널 -->
           <div class="w-full lg:w-80">
-            <PlayerPanel :players="players" />
+            <PlayerPanel 
+              :players="gamePlayers" 
+              :gameStatus="gameStore.status"
+            />
           </div>
           <!-- 카드 덱 -->
           <div class="w-full lg:w-80">
             <CardDeck 
-              :myHand="myHand" 
-              :isMyTurn="isMyTurn" 
-              @after-submit="handleCardSubmit" 
+              :myHand="gameStore.myHand" 
+              :isMyTurn="gameStore.isMyTurn"
+              :currentPlayerName="gameStore.currentPlayer?.name || ''"
             />
+          </div>
+        </div>
+        
+        <!-- 대기실 -->
+        <div v-else class="flex flex-col lg:flex-row gap-6">
+          <!-- 플레이어 관리 패널 -->
+          <div class="flex-1">
+            <div class="bg-lexio-bg-light rounded-xl shadow-lg p-6 border border-gray-600">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-lexio-text">플레이어 관리</h3>
+                <div v-if="isRoomOwner" class="flex gap-2">
+                  <button
+                    @click="addCpu"
+                    :disabled="players.length >= 4"
+                    class="bg-blue-600 text-white font-semibold rounded-lg px-3 py-1 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    :class="players.length < 4 ? 'hover:bg-blue-700' : ''"
+                  >
+                    CPU 추가
+                  </button>
+                  <button
+                    @click="removeCpu"
+                    :disabled="!hasCpuPlayers"
+                    class="bg-gray-600 text-white font-semibold rounded-lg px-3 py-1 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    :class="hasCpuPlayers ? 'hover:bg-gray-700' : ''"
+                  >
+                    CPU 제거
+                  </button>
+                </div>
+              </div>
+              
+              <!-- 플레이어 목록 -->
+              <div class="space-y-3">
+                <div 
+                  v-for="player in players" 
+                  :key="player.id" 
+                  class="flex items-center justify-between p-3 rounded-lg bg-lexio-bg border border-gray-600"
+                >
+                  <div class="flex items-center gap-3">
+                    <div 
+                      class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white text-sm"
+                      :class="[
+                        player.isMe 
+                          ? 'bg-highlight-red' 
+                          : isCpuPlayer(player.id)
+                            ? 'bg-blue-600'
+                            : 'bg-gray-500'
+                      ]"
+                    >
+                      {{ player.email.charAt(0).toUpperCase() }}
+                    </div>
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="font-semibold text-lexio-text">{{ player.email }}</span>
+                        <span v-if="player.isMe" class="text-xs text-highlight-red font-bold bg-highlight-red bg-opacity-20 px-2 py-1 rounded-full">
+                          나
+                        </span>
+                        <span v-if="isCpuPlayer(player.id)" class="text-xs text-blue-400 font-bold bg-blue-600 bg-opacity-20 px-2 py-1 rounded-full">
+                          CPU
+                        </span>
+                        <span v-if="player.id === room.created_by" class="text-xs text-yellow-400 font-bold bg-yellow-600 bg-opacity-20 px-2 py-1 rounded-full">
+                          방장
+                        </span>
+                      </div>
+                      <div class="text-xs text-lexio-text-muted">
+                        {{ formatDate(player.joinedAt) }}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <!-- 관리 버튼 -->
+                  <div v-if="isRoomOwner && !player.isMe" class="flex gap-1">
+                    <button
+                      @click="kickPlayer(player.id)"
+                      class="bg-red-600 text-white text-xs px-2 py-1 rounded transition hover:bg-red-700"
+                    >
+                      추방
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 게임 정보 -->
+          <div class="w-full lg:w-80">
+            <div class="bg-lexio-bg-light rounded-xl shadow-lg p-6 border border-gray-600">
+              <h3 class="text-lg font-bold text-lexio-text mb-4">게임 정보</h3>
+              
+              <div class="space-y-3">
+                <div class="flex justify-between">
+                  <span class="text-lexio-text-muted">방 이름:</span>
+                  <span class="text-lexio-text font-semibold">{{ room.name }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-lexio-text-muted">플레이어:</span>
+                  <span class="text-lexio-text font-semibold">{{ players.length }}/4</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-lexio-text-muted">실제 플레이어:</span>
+                  <span class="text-lexio-text font-semibold">{{ realPlayerCount }}명</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-lexio-text-muted">CPU:</span>
+                  <span class="text-lexio-text font-semibold">{{ cpuPlayerCount }}명</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-lexio-text-muted">상태:</span>
+                  <span class="text-green-400 font-semibold">대기 중</span>
+                </div>
+              </div>
+              
+              <div v-if="isRoomOwner" class="mt-6 p-4 bg-lexio-bg rounded-lg border border-gray-600">
+                <div class="text-sm text-lexio-text-muted mb-2">방장 기능</div>
+                <div class="text-xs text-gray-400 space-y-1">
+                  <div>• 플레이어 추방</div>
+                  <div>• CPU 추가/제거</div>
+                  <div>• 게임 시작</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -92,6 +242,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../lib/supabase.js'
 import { useAuthStore } from '../store/auth.js'
+import { useGameStore } from '../store/game.js'
 import RoomCreatePanel from '../components/RoomCreatePanel.vue'
 import RoomList from '../components/RoomList.vue'
 import GameBoard from '../components/GameBoard.vue'
@@ -101,6 +252,7 @@ import CardDeck from '../components/CardDeck.vue'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const gameStore = useGameStore()
 
 const roomId = computed(() => route.params.roomId)
 const search = ref('')
@@ -108,16 +260,71 @@ const search = ref('')
 // 게임 방 관련 상태
 const room = ref(null)
 const players = ref([])
-const gameBoard = ref([])
-const myHand = ref([])
-const currentPlayer = ref(null)
-const isMyTurn = ref(false)
 const loading = ref(false)
 const error = ref('')
 
 // 실시간 구독
 let roomSubscription = null
 let playersSubscription = null
+let gameSubscription = null
+let turnsSubscription = null
+
+// 계산된 속성들
+const isRoomOwner = computed(() => {
+  return room.value?.created_by === auth.user?.id
+})
+
+const gamePlayers = computed(() => {
+  return players.value.map(player => ({
+    id: player.id,
+    name: player.email,
+    handCount: player.handCount || 0,
+    isTurn: gameStore.currentTurnUserId === player.id,
+    isMe: player.id === auth.user?.id,
+    isOnline: true // 실제로는 온라인 상태를 추적해야 함
+  }))
+})
+
+const lastPlayedPlayerName = computed(() => {
+  if (!gameStore.lastPlayedPlayerId) return ''
+  const player = players.value.find(p => p.id === gameStore.lastPlayedPlayerId)
+  return player?.email || 'Unknown'
+})
+
+const totalRemainingCards = computed(() => {
+  return gamePlayers.value.reduce((total, player) => total + player.handCount, 0)
+})
+
+// CPU 플레이어 관련 computed
+const isCpuPlayer = (playerId) => {
+  return typeof playerId === 'string' && playerId.startsWith('cpu')
+}
+
+const realPlayerCount = computed(() => {
+  return players.value.filter(p => !isCpuPlayer(p.id)).length
+})
+
+const cpuPlayerCount = computed(() => {
+  return players.value.filter(p => isCpuPlayer(p.id)).length
+})
+
+const hasCpuPlayers = computed(() => {
+  return cpuPlayerCount.value > 0
+})
+
+const canStartGame = computed(() => {
+  return players.value.length >= 2
+})
+
+// 유틸리티 함수
+function formatDate(dateString) {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  return date.toLocaleTimeString('ko-KR', { 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  })
+}
 
 onMounted(async () => {
   if (roomId.value) {
@@ -129,6 +336,8 @@ onMounted(async () => {
 onUnmounted(() => {
   if (roomSubscription) roomSubscription.unsubscribe()
   if (playersSubscription) playersSubscription.unsubscribe()
+  if (gameSubscription) gameSubscription.unsubscribe()
+  if (turnsSubscription) turnsSubscription.unsubscribe()
 })
 
 async function loadRoom() {
@@ -137,55 +346,35 @@ async function loadRoom() {
   loading.value = true
   error.value = ''
   
-  let retryCount = 0
-  const maxRetries = 3
-  
-  while (retryCount < maxRetries) {
-    try {
-      // 방 정보 로드
-      const { data: roomData, error: roomError } = await supabase
-        .from('lo_rooms')
-        .select('*')
-        .eq('id', roomId.value)
-        .single()
-      
-      if (roomError || !roomData) {
-        if (retryCount < maxRetries - 1) {
-          // 재시도 전 잠시 대기
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          retryCount++
-          continue
-        } else {
-          error.value = '방을 찾을 수 없습니다.'
-          return
-        }
-      }
-      
-      room.value = roomData
-      
-      // 플레이어 목록 로드
-      await loadPlayers()
-      
-      // 게임 정보 로드 (진행 중인 경우)
-      if (roomData.status === 'playing') {
-        await loadGameData()
-      }
-      
-      break // 성공하면 루프 종료
-      
-    } catch (err) {
-      if (retryCount < maxRetries - 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        retryCount++
-        continue
-      } else {
-        error.value = '방 정보를 불러오지 못했습니다.'
-        break
-      }
+  try {
+    // 방 정보 로드
+    const { data: roomData, error: roomError } = await supabase
+      .from('lo_rooms')
+      .select('*')
+      .eq('id', roomId.value)
+      .single()
+    
+    if (roomError || !roomData) {
+      error.value = '방을 찾을 수 없습니다.'
+      return
     }
+    
+    room.value = roomData
+    
+    // 플레이어 목록 로드
+    await loadPlayers()
+    
+    // 게임 정보 로드 (진행 중인 경우)
+    if (roomData.status === 'playing') {
+      await loadGameData()
+    }
+    
+  } catch (err) {
+    console.error('방 로드 오류:', err)
+    error.value = '방 정보를 불러오지 못했습니다.'
+  } finally {
+    loading.value = false
   }
-  
-  loading.value = false
 }
 
 async function loadPlayers() {
@@ -199,12 +388,15 @@ async function loadPlayers() {
     .order('joined_at', { ascending: true })
   
   if (!err && data) {
-    players.value = data.map(p => ({
-      id: p.user_id,
-      email: p.profiles?.email || 'Unknown',
-      joinedAt: p.joined_at,
-      isMe: p.user_id === auth.user?.id
-    }))
+    players.value = data.map(p => {
+      const isCpu = p.user_id.startsWith('cpu')
+      return {
+        id: p.user_id,
+        email: isCpu ? p.user_id.toUpperCase() : (p.profiles?.email || 'Unknown'),
+        joinedAt: p.joined_at,
+        handCount: 0 // 게임이 시작되면 업데이트됨
+      }
+    })
     
     // 방의 플레이어 수 업데이트
     await updateRoomPlayerCount(data.length)
@@ -212,7 +404,6 @@ async function loadPlayers() {
 }
 
 async function updateRoomPlayerCount(count) {
-  // 방의 플레이어 수를 업데이트
   await supabase
     .from('lo_rooms')
     .update({ players: count })
@@ -220,7 +411,7 @@ async function updateRoomPlayerCount(count) {
 }
 
 async function loadGameData() {
-  // 게임 데이터 로드 (진행 중인 게임이 있는 경우)
+  // 게임 데이터 로드
   const { data: gameData, error: gameError } = await supabase
     .from('lo_games')
     .select('*')
@@ -229,14 +420,17 @@ async function loadGameData() {
     .single()
   
   if (!gameError && gameData) {
-    // 현재 플레이어 턴 확인
-    isMyTurn.value = gameData.current_turn_user_id === auth.user?.id
+    // 게임 store 초기화
+    gameStore.initializeGame(gameData, gamePlayers.value, auth.user?.id)
     
     // 내 카드 로드
     await loadMyHand(gameData.id)
     
-    // 게임 보드 로드
-    await loadGameBoard(gameData.id)
+    // 플레이어들의 카드 수 업데이트
+    await updatePlayerHandCounts(gameData.id)
+    
+    // 마지막 턴 정보 로드
+    await loadLastTurn(gameData.id)
   }
 }
 
@@ -249,12 +443,32 @@ async function loadMyHand(gameId) {
     .eq('in_hand', true)
   
   if (!err && data) {
-    myHand.value = data
+    gameStore.setMyHand(data)
   }
 }
 
-async function loadGameBoard(gameId) {
-  // 최근 턴의 카드들을 게임 보드에 표시
+async function updatePlayerHandCounts(gameId) {
+  const { data, error: err } = await supabase
+    .from('lo_cards')
+    .select('owner_id, in_hand')
+    .eq('game_id', gameId)
+    .eq('in_hand', true)
+  
+  if (!err && data) {
+    const handCounts = data.reduce((counts, card) => {
+      counts[card.owner_id] = (counts[card.owner_id] || 0) + 1
+      return counts
+    }, {})
+    
+    // 플레이어들의 카드 수 업데이트
+    players.value = players.value.map(player => ({
+      ...player,
+      handCount: handCounts[player.id] || 0
+    }))
+  }
+}
+
+async function loadLastTurn(gameId) {
   const { data, error: err } = await supabase
     .from('lo_game_turns')
     .select('*')
@@ -263,8 +477,7 @@ async function loadGameBoard(gameId) {
     .limit(1)
   
   if (!err && data && data[0]) {
-    gameBoard.value = data[0].cards || []
-    currentPlayer.value = data[0].player_id
+    gameStore.updateLastPlay(data[0])
   }
 }
 
@@ -279,7 +492,6 @@ function setupRealtimeSubscriptions() {
       filter: `id=eq.${roomId.value}`
     }, (payload) => {
       if (payload.eventType === 'DELETE') {
-        // 방이 삭제된 경우
         router.push('/game')
         return
       }
@@ -303,7 +515,6 @@ function setupRealtimeSubscriptions() {
       filter: `room_id=eq.${roomId.value}`
     }, async (payload) => {
       if (payload.eventType === 'DELETE') {
-        // 플레이어가 나간 경우
         await loadPlayers()
         
         // 방에 플레이어가 없으면 방 삭제
@@ -314,15 +525,195 @@ function setupRealtimeSubscriptions() {
         return
       }
       
-      // 플레이어 목록 새로고침
+      if (payload.eventType === 'INSERT') {
+        // 새 플레이어 추가 (CPU 또는 실제 플레이어)
+        await loadPlayers()
+        return
+      }
+      
       await loadPlayers()
+    })
+    .subscribe()
+
+  // 게임 상태 실시간 구독
+  gameSubscription = supabase
+    .channel('game-changes')
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'lo_games',
+      filter: `room_id=eq.${roomId.value}`
+    }, async (payload) => {
+      if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+        await loadGameData()
+      }
+    })
+    .subscribe()
+
+  // 턴 정보 실시간 구독
+  turnsSubscription = supabase
+    .channel('turns-changes')
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'lo_game_turns',
+      filter: `game_id=eq.${gameStore.gameId}`
+    }, async (payload) => {
+      gameStore.updateLastPlay(payload.new)
+      await updatePlayerHandCounts(gameStore.gameId)
     })
     .subscribe()
 }
 
-async function handleCardSubmit() {
-  // 카드 제출 후 처리
-  await loadGameData()
+async function startGame() {
+  if (!isRoomOwner.value || !canStartGame.value) return
+  
+  try {
+    // 게임 생성
+    const { data: gameData, error: gameError } = await supabase
+      .from('lo_games')
+      .insert({
+        room_id: roomId.value,
+        status: 'playing',
+        current_turn_user_id: players.value[0]?.id,
+        created_by: auth.user?.id
+      })
+      .select()
+      .single()
+    
+    if (gameError) throw gameError
+    
+    // 카드 분배 (CPU 포함)
+    await distributeCards(gameData.id)
+    
+    // 방 상태 업데이트
+    await supabase
+      .from('lo_rooms')
+      .update({ status: 'playing' })
+      .eq('id', roomId.value)
+    
+  } catch (err) {
+    console.error('게임 시작 오류:', err)
+    error.value = '게임을 시작할 수 없습니다.'
+  }
+}
+
+async function kickPlayer(playerId) {
+  if (!isRoomOwner.value || playerId === auth.user?.id) return
+  
+  try {
+    // 플레이어를 방에서 제거
+    const { error } = await supabase
+      .from('lo_room_players')
+      .delete()
+      .eq('room_id', roomId.value)
+      .eq('user_id', playerId)
+    
+    if (error) throw error
+    
+    // 플레이어 목록 새로고침
+    await loadPlayers()
+    
+    // 방의 플레이어 수 업데이트
+    await updateRoomPlayerCount(players.value.length)
+    
+  } catch (err) {
+    console.error('플레이어 추방 오류:', err)
+    error.value = '플레이어를 추방할 수 없습니다.'
+  }
+}
+
+async function addCpu() {
+  if (!isRoomOwner.value || players.value.length >= 4) return
+  
+  try {
+    const cpuId = `cpu${cpuPlayerCount.value + 1}`
+    const cpuPlayer = {
+      id: cpuId,
+      email: `CPU${cpuPlayerCount.value + 1}`,
+      joinedAt: new Date().toISOString(),
+      handCount: 0
+    }
+    
+    // DB에 CPU 추가
+    await supabase.from('lo_room_players').insert({
+      room_id: roomId.value,
+      user_id: cpuId
+    })
+    
+    // 로컬 상태에 추가
+    players.value.push(cpuPlayer)
+    
+    // 방의 플레이어 수 업데이트
+    await updateRoomPlayerCount(players.value.length)
+    
+  } catch (err) {
+    console.error('CPU 추가 오류:', err)
+    error.value = 'CPU를 추가할 수 없습니다.'
+  }
+}
+
+async function removeCpu() {
+  if (!isRoomOwner.value || !hasCpuPlayers.value) return
+  
+  try {
+    // 가장 마지막 CPU 찾기
+    const lastCpu = players.value.filter(p => isCpuPlayer(p.id)).pop()
+    if (!lastCpu) return
+    
+    // DB에서 CPU 제거
+    await supabase
+      .from('lo_room_players')
+      .delete()
+      .eq('room_id', roomId.value)
+      .eq('user_id', lastCpu.id)
+    
+    // 로컬 상태에서 제거
+    players.value = players.value.filter(p => p.id !== lastCpu.id)
+    
+    // 방의 플레이어 수 업데이트
+    await updateRoomPlayerCount(players.value.length)
+    
+  } catch (err) {
+    console.error('CPU 제거 오류:', err)
+    error.value = 'CPU를 제거할 수 없습니다.'
+  }
+}
+
+async function distributeCards(gameId) {
+  // 간단한 카드 분배 (실제로는 더 복잡한 로직 필요)
+  const suits = ['hearts', 'diamonds', 'clubs', 'spades']
+  const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+  
+  const cards = []
+  for (const suit of suits) {
+    for (const rank of ranks) {
+      cards.push({ suit, rank })
+    }
+  }
+  
+  // 카드 섞기
+  for (let i = cards.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[cards[i], cards[j]] = [cards[j], cards[i]]
+  }
+  
+  // 플레이어들에게 카드 분배
+  const playerIds = players.value.map(p => p.id)
+  for (let i = 0; i < cards.length; i++) {
+    const playerId = playerIds[i % playerIds.length]
+    const card = cards[i]
+    
+    await supabase
+      .from('lo_cards')
+      .insert({
+        game_id: gameId,
+        owner_id: playerId,
+        suit: card.suit,
+        rank: card.rank,
+        in_hand: true
+      })
+  }
 }
 
 async function leaveRoom() {
