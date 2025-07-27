@@ -1,21 +1,21 @@
 <template>
-  <div class="flex flex-col items-center justify-center min-h-[80vh] bg-[#18181b] py-8">
+  <div class="flex flex-col items-center justify-center min-h-[80vh] bg-lexio-bg py-8">
     <!-- 방 목록/생성 페이지 (roomId가 없을 때) -->
     <div v-if="!roomId" class="w-full max-w-6xl flex flex-col md:flex-row gap-8">
       <!-- 좌측: 방 생성 패널 -->
       <div class="w-full md:w-1/3 flex flex-col items-center">
         <RoomCreatePanel />
         <div class="mt-8 flex flex-col items-center gap-2">
-          <a href="https://discord.gg/" target="_blank" class="text-indigo-400 font-bold flex items-center gap-2 hover:underline">
+          <a href="https://discord.gg/" target="_blank" class="text-highlight-red font-bold flex items-center gap-2 hover:underline">
             <span>JOIN US ON</span> <span class="text-2xl">DISCORD</span>
           </a>
-          <span class="text-xs text-gray-400 mt-2">Tip Jar</span>
+          <span class="text-xs text-lexio-text-muted mt-2">Tip Jar</span>
         </div>
       </div>
       <!-- 우측: 방 목록/검색 -->
       <div class="w-full md:w-2/3">
         <div class="flex items-center gap-2 mb-4">
-          <input type="text" placeholder="Search rooms" class="w-full rounded-xl px-4 py-2 bg-gray-900 text-white focus:outline-none focus:ring-2 focus:ring-highlight-yellow transition" v-model="search" />
+          <input type="text" placeholder="Search rooms" class="w-full rounded-xl px-4 py-2 bg-lexio-bg-light text-lexio-text focus:outline-none focus:ring-2 focus:ring-highlight-red transition" v-model="search" />
         </div>
         <RoomList :search="search" />
       </div>
@@ -23,16 +23,19 @@
 
     <!-- 게임 방 페이지 (roomId가 있을 때) -->
     <div v-else class="w-full max-w-6xl">
-      <div v-if="loading" class="text-center text-gray-400 py-8">방 정보를 불러오는 중...</div>
+      <div v-if="loading" class="text-center text-lexio-text-muted py-8">
+        <div class="mb-2">방 정보를 불러오는 중...</div>
+        <div class="text-sm text-gray-500">잠시만 기다려주세요</div>
+      </div>
       <div v-else-if="error" class="text-center text-red-400 py-8">{{ error }}</div>
       <div v-else-if="!room" class="text-center text-red-400 py-8">방을 찾을 수 없습니다.</div>
       <div v-else class="flex flex-col gap-6">
         <!-- 방 헤더 -->
-        <div class="flex items-center justify-between bg-gray-800 rounded-xl p-4">
+        <div class="flex items-center justify-between bg-lexio-bg-light rounded-xl p-4">
           <div class="flex items-center gap-4">
-            <h2 class="text-xl font-bold text-white">{{ room.name }}</h2>
-            <span class="text-sm text-gray-400">({{ room.players }}/{{ room.max_players || 4 }})</span>
-            <span v-if="room.status === 'playing'" class="text-sm text-yellow-400">진행중</span>
+            <h2 class="text-xl font-bold text-lexio-text">{{ room.name }}</h2>
+            <span class="text-sm text-lexio-text-muted">({{ room.players }}/{{ room.max_players || 4 }})</span>
+            <span v-if="room.status === 'playing'" class="text-sm text-highlight-red">진행중</span>
             <span v-else class="text-sm text-green-400">대기중</span>
           </div>
           <button
@@ -117,34 +120,55 @@ async function loadRoom() {
   loading.value = true
   error.value = ''
   
-  try {
-    // 방 정보 로드
-    const { data: roomData, error: roomError } = await supabase
-      .from('lo_rooms')
-      .select('*')
-      .eq('id', roomId.value)
-      .single()
-    
-    if (roomError || !roomData) {
-      error.value = '방을 찾을 수 없습니다.'
-      return
+  let retryCount = 0
+  const maxRetries = 3
+  
+  while (retryCount < maxRetries) {
+    try {
+      // 방 정보 로드
+      const { data: roomData, error: roomError } = await supabase
+        .from('lo_rooms')
+        .select('*')
+        .eq('id', roomId.value)
+        .single()
+      
+      if (roomError || !roomData) {
+        if (retryCount < maxRetries - 1) {
+          // 재시도 전 잠시 대기
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          retryCount++
+          continue
+        } else {
+          error.value = '방을 찾을 수 없습니다.'
+          return
+        }
+      }
+      
+      room.value = roomData
+      
+      // 플레이어 목록 로드
+      await loadPlayers()
+      
+      // 게임 정보 로드 (진행 중인 경우)
+      if (roomData.status === 'playing') {
+        await loadGameData()
+      }
+      
+      break // 성공하면 루프 종료
+      
+    } catch (err) {
+      if (retryCount < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        retryCount++
+        continue
+      } else {
+        error.value = '방 정보를 불러오지 못했습니다.'
+        break
+      }
     }
-    
-    room.value = roomData
-    
-    // 플레이어 목록 로드
-    await loadPlayers()
-    
-    // 게임 정보 로드 (진행 중인 경우)
-    if (roomData.status === 'playing') {
-      await loadGameData()
-    }
-    
-  } catch (err) {
-    error.value = '방 정보를 불러오지 못했습니다.'
-  } finally {
-    loading.value = false
   }
+  
+  loading.value = false
 }
 
 async function loadPlayers() {

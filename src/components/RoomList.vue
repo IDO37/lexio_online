@@ -1,43 +1,43 @@
 <template>
-  <div class="bg-gray-700 rounded-xl shadow-md p-4 flex flex-col gap-2 w-full max-w-md mx-auto">
+  <div class="bg-lexio-bg-lighter rounded-xl shadow-md p-4 flex flex-col gap-2 w-full max-w-md mx-auto">
     <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-2 gap-2">
-      <div class="text-sm text-gray-300 font-semibold">방 목록</div>
-      <label class="flex items-center gap-2 text-xs text-gray-300">
+      <div class="text-sm text-lexio-text-muted font-semibold">방 목록</div>
+      <label class="flex items-center gap-2 text-xs text-lexio-text-muted">
         <input 
           type="checkbox" 
           v-model="showPasswordRooms" 
-          class="accent-highlight-yellow"
+          class="accent-highlight-red"
         />
         비밀번호 방 표시
       </label>
     </div>
-    <div v-if="!isAuthed" class="text-xs text-yellow-400 mb-2">로그인해야 방 생성/입장이 가능합니다.</div>
-    <div v-if="loading" class="text-center text-gray-400 py-8">불러오는 중...</div>
+    <div v-if="!isAuthed" class="text-xs text-highlight-red mb-2">로그인해야 방 생성/입장이 가능합니다.</div>
+    <div v-if="loading" class="text-center text-lexio-text-muted py-8">불러오는 중...</div>
     <div v-else-if="error" class="text-center text-red-400 py-8">{{ error }}</div>
     <div v-else class="flex flex-col gap-2 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
       <div
         v-for="room in filteredRooms"
         :key="room.id"
-        class="flex items-center justify-between p-3 rounded-lg bg-gray-800 hover:bg-gray-600 transition cursor-pointer focus-within:ring-2 focus-within:ring-highlight-yellow"
+        class="flex items-center justify-between p-3 rounded-lg bg-lexio-bg hover:bg-lexio-bg-light transition cursor-pointer focus-within:ring-2 focus-within:ring-highlight-red"
         tabindex="0"
         @keydown.enter="joinRoom(room)"
         :aria-label="`${room.name} 방, ${room.players}명, ${room.status === 'playing' ? '진행중' : '대기중'}`"
       >
         <div class="flex items-center gap-3">
-          <span class="font-bold text-white text-base">{{ room.name }}</span>
-          <span class="text-xs text-gray-400">({{ room.players }}/{{ room.max_players || 4 }})</span>
-          <span v-if="room.status === 'playing'" class="ml-2 text-xs text-yellow-400">진행중</span>
+          <span class="font-bold text-lexio-text text-base">{{ room.name }}</span>
+          <span class="text-xs text-lexio-text-muted">({{ room.players }}/{{ room.max_players || 4 }})</span>
+          <span v-if="room.status === 'playing'" class="ml-2 text-xs text-highlight-red">진행중</span>
           <span v-else class="ml-2 text-xs text-green-400">대기중</span>
           <span v-if="!room.is_public" class="ml-2 text-xs text-red-400">🔒</span>
         </div>
         <button
-          class="bg-highlight-yellow text-gray-900 font-semibold rounded-xl px-4 py-2 text-base shadow-md transition hover:bg-yellow-400/80 focus:outline-none focus:ring-2 focus:ring-highlight-yellow disabled:opacity-50"
+          class="bg-highlight-red text-white font-semibold rounded-xl px-4 py-2 text-base shadow-md transition hover:bg-highlight-red-dark focus:outline-none focus:ring-2 focus:ring-highlight-red disabled:opacity-50"
           @click.stop="joinRoom(room)"
           :disabled="!isAuthed"
           aria-label="{{ room.name }} 방 입장"
         >입장</button>
       </div>
-      <div v-if="filteredRooms.length === 0" class="text-center text-gray-400 py-8">
+      <div v-if="filteredRooms.length === 0" class="text-center text-lexio-text-muted py-8">
         {{ search ? '검색 결과가 없습니다.' : '생성된 방이 없습니다.' }}
       </div>
     </div>

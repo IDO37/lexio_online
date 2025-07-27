@@ -1,13 +1,38 @@
 <template>
-  <section class="flex flex-col items-center justify-center min-h-[60vh] gap-8">
-    <div class="bg-gray-800 rounded-xl shadow-md p-8 max-w-2xl w-full text-center flex flex-col items-center">
-      <h1 class="text-4xl font-bold mb-4 text-highlight-yellow">렉시오 온라인</h1>
-      <p class="mb-6 text-lg text-gray-300">카드 배치와 전략이 만나는 보드게임, 렉시오를 온라인에서 즐기세요!</p>
-      <div class="w-full flex flex-col items-center gap-4">
-        <!-- 게임 스크린샷 또는 대표 이미지 -->
-        <img src="/Lexio_sampleimage.png" alt="렉시오 게임 스크린샷" class="rounded-xl shadow-lg max-w-full max-h-96 object-contain border border-gray-700 bg-gray-900" style="background: #23232a;" />
-        <div class="mt-4 text-gray-400 text-sm">실제 게임 화면 예시입니다.</div>
+  <div class="flex flex-col items-center justify-center min-h-[80vh] bg-lexio-bg py-8">
+    <div class="text-center max-w-4xl mx-auto px-4">
+      <h1 class="text-5xl font-bold text-lexio-text mb-6">
+        <span class="text-highlight-red">LEXIO</span> 온라인
+      </h1>
+      <p class="text-xl text-lexio-text-muted mb-8">
+        전략적 카드 게임 렉시오를 온라인에서 즐겨보세요
+      </p>
+      
+      <!-- 게임 스크린샷 플레이스홀더 -->
+      <div class="bg-lexio-bg-light rounded-xl p-8 mb-8 border border-gray-600">
+        <div class="text-lexio-text-muted text-lg">
+          게임 스크린샷이 여기에 표시됩니다
+        </div>
+      </div>
+      
+      <div class="flex flex-col sm:flex-row gap-4 justify-center">
+        <router-link 
+          to="/game" 
+          class="bg-highlight-red text-white font-bold rounded-xl px-8 py-4 text-lg shadow-lg transition hover:bg-highlight-red-dark"
+        >
+          게임 시작하기
+        </router-link>
+        <router-link 
+          to="/rules" 
+          class="bg-lexio-bg-light text-lexio-text font-bold rounded-xl px-8 py-4 text-lg border border-gray-600 transition hover:bg-lexio-bg-lighter"
+        >
+          게임 규칙 보기
+        </router-link>
       </div>
     </div>
-  </section>
-</template> 
+  </div>
+</template>
+
+<script setup>
+// Home 컴포넌트 로직
+</script> 
