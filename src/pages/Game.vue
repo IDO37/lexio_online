@@ -51,7 +51,7 @@
         <div class="flex items-center justify-between bg-lexio-bg-light rounded-xl p-4">
           <div class="flex items-center gap-4">
             <h2 class="text-xl font-bold text-lexio-text">{{ room.name }}</h2>
-            <span class="text-sm text-lexio-text-muted">({{ room.players }}/{{ room.max_players || 4 }})</span>
+            <span class="text-sm text-lexio-text-muted">({{ players.length }}/{{ room.max_players || 4 }})</span>
             <span v-if="room.status === 'playing'" class="text-sm text-highlight-red">진행중</span>
             <span v-else class="text-sm text-green-400">대기중</span>
           </div>
@@ -123,9 +123,9 @@
                 <div v-if="isRoomOwner" class="flex gap-2">
                   <button
                     @click="addCpu"
-                    :disabled="players.length >= 4"
+                    :disabled="players.length >= (room.max_players || 4)"
                     class="bg-blue-600 text-white font-semibold rounded-lg px-3 py-1 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    :class="players.length < 4 ? 'hover:bg-blue-700' : ''"
+                    :class="players.length < (room.max_players || 4) ? 'hover:bg-blue-700' : ''"
                   >
                     CPU 추가
                   </button>
@@ -205,28 +205,11 @@
                 </div>
                 <div class="flex justify-between">
                   <span class="text-lexio-text-muted">플레이어:</span>
-                  <span class="text-lexio-text font-semibold">{{ players.length }}/4</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-lexio-text-muted">실제 플레이어:</span>
-                  <span class="text-lexio-text font-semibold">{{ realPlayerCount }}명</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-lexio-text-muted">CPU:</span>
-                  <span class="text-lexio-text font-semibold">{{ cpuPlayerCount }}명</span>
+                  <span class="text-lexio-text font-semibold">{{ players.length }}/{{ room.max_players || 4 }}</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-lexio-text-muted">상태:</span>
                   <span class="text-green-400 font-semibold">대기 중</span>
-                </div>
-              </div>
-              
-              <div v-if="isRoomOwner" class="mt-6 p-4 bg-lexio-bg rounded-lg border border-gray-600">
-                <div class="text-sm text-lexio-text-muted mb-2">방장 기능</div>
-                <div class="text-xs text-gray-400 space-y-1">
-                  <div>• 플레이어 추방</div>
-                  <div>• CPU 추가/제거</div>
-                  <div>• 게임 시작</div>
                 </div>
               </div>
             </div>
@@ -526,7 +509,7 @@ function setupRealtimeSubscriptions() {
       }
       
       if (payload.eventType === 'INSERT') {
-        // 새 플레이어 추가 (CPU 또는 실제 플레이어)
+        // 새 실제 플레이어 추가 (CPU는 로컬에서만 관리)
         await loadPlayers()
         return
       }
@@ -635,16 +618,11 @@ async function addCpu() {
       handCount: 0
     }
     
-    // DB에 CPU 추가
-    await supabase.from('lo_room_players').insert({
-      room_id: roomId.value,
-      user_id: cpuId
-    })
-    
-    // 로컬 상태에 추가
+    // CPU는 실제 DB에 추가하지 않고 로컬에서만 관리
+    // (실제 사용자가 아니므로 DB에 저장하면 오류 발생)
     players.value.push(cpuPlayer)
     
-    // 방의 플레이어 수 업데이트
+    // 방의 플레이어 수 업데이트 (CPU 포함)
     await updateRoomPlayerCount(players.value.length)
     
   } catch (err) {
@@ -661,14 +639,7 @@ async function removeCpu() {
     const lastCpu = players.value.filter(p => isCpuPlayer(p.id)).pop()
     if (!lastCpu) return
     
-    // DB에서 CPU 제거
-    await supabase
-      .from('lo_room_players')
-      .delete()
-      .eq('room_id', roomId.value)
-      .eq('user_id', lastCpu.id)
-    
-    // 로컬 상태에서 제거
+    // CPU는 로컬에서만 제거 (DB에 저장하지 않았으므로)
     players.value = players.value.filter(p => p.id !== lastCpu.id)
     
     // 방의 플레이어 수 업데이트
@@ -698,7 +669,7 @@ async function distributeCards(gameId) {
     ;[cards[i], cards[j]] = [cards[j], cards[i]]
   }
   
-  // 플레이어들에게 카드 분배
+  // 플레이어들에게 카드 분배 (CPU 포함)
   const playerIds = players.value.map(p => p.id)
   for (let i = 0; i < cards.length; i++) {
     const playerId = playerIds[i % playerIds.length]
