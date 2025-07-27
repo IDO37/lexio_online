@@ -406,25 +406,61 @@ async function loadRoom() {
 }
 
 async function loadPlayers() {
-  const { data, error: err } = await supabase
-    .from('lo_room_players')
-    .select(`
-      *,
-      profiles:user_id(email)
-    `)
-    .eq('room_id', roomId.value)
-    .order('joined_at', { ascending: true })
-  
-  if (!err && data) {
-    console.log('플레이어 목록 로드:', data.length, '명')
+  try {
+    // 먼저 플레이어 목록을 가져옴
+    const { data: playerData, error: playerError } = await supabase
+      .from('lo_room_players')
+      .select('*')
+      .eq('room_id', roomId.value)
+      .order('joined_at', { ascending: true })
     
-    let playerList = data.map(p => {
-      const isCpu = p.user_id.startsWith('cpu')
+    if (playerError) {
+      console.error('플레이어 목록 로드 오류:', playerError)
+      return
+    }
+    
+    if (!playerData) {
+      console.log('플레이어 데이터가 없습니다.')
+      players.value = []
+      return
+    }
+    
+    console.log('플레이어 목록 로드:', playerData.length, '명')
+    
+    // 실제 사용자 ID들만 추출
+    const realUserIds = playerData
+      .filter(p => !p.user_id.startsWith('cpu'))
+      .map(p => p.user_id)
+    
+    // 한 번에 모든 프로필 정보 가져오기
+    let profileMap = {}
+    if (realUserIds.length > 0) {
+      try {
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, email')
+          .in('id', realUserIds)
+        
+        if (!profilesError && profilesData) {
+          profileMap = profilesData.reduce((map, profile) => {
+            map[profile.id] = profile.email
+            return map
+          }, {})
+        }
+      } catch (profilesErr) {
+        console.error('프로필 일괄 로드 오류:', profilesErr)
+      }
+    }
+    
+    // 플레이어 목록 생성
+    let playerList = playerData.map(player => {
+      const isCpu = player.user_id.startsWith('cpu')
+      
       return {
-        id: p.user_id,
-        email: isCpu ? p.user_id.toUpperCase() : (p.profiles?.email || 'Unknown'),
-        joinedAt: p.joined_at,
-        handCount: 0 // 게임이 시작되면 업데이트됨
+        id: player.user_id,
+        email: isCpu ? player.user_id.toUpperCase() : (profileMap[player.user_id] || 'Unknown'),
+        joinedAt: player.joined_at,
+        handCount: 0
       }
     })
     
@@ -448,9 +484,11 @@ async function loadPlayers() {
     console.log('최종 플레이어 목록:', players.value.map(p => `${p.email} (${p.id})`))
     
     // 방의 플레이어 수 업데이트
-    await updateRoomPlayerCount(data.length)
-  } else {
+    await updateRoomPlayerCount(playerData.length)
+    
+  } catch (err) {
     console.error('플레이어 목록 로드 오류:', err)
+    players.value = []
   }
 }
 
