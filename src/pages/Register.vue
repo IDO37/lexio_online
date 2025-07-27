@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { supabase } from '../lib/supabase.js'
+import { useAuthStore } from '../store/auth.js'
 import { useRouter } from 'vue-router'
 
 const email = ref('')
@@ -9,6 +10,7 @@ const confirmPassword = ref('')
 const error = ref('')
 const success = ref('')
 const loading = ref(false)
+const auth = useAuthStore()
 const router = useRouter()
 
 // 폼 유효성 검사
@@ -43,15 +45,33 @@ async function handleRegister() {
     if (err) {
       error.value = err.message
     } else {
-      success.value = '회원가입이 완료되었습니다. 이메일 인증을 확인해 주세요.'
+      success.value = '회원가입이 완료되었습니다. 자동으로 로그인됩니다.'
+      
+      // 회원가입 후 자동 로그인 시도
+      try {
+        const loginResult = await auth.login(email.value, password.value)
+        if (loginResult.success) {
+          // 로그인 성공 시 홈으로 이동
+          setTimeout(() => {
+            router.push('/')
+          }, 2000)
+        } else {
+          success.value = '회원가입이 완료되었습니다. 로그인 페이지에서 로그인해주세요.'
+          setTimeout(() => {
+            router.push('/login')
+          }, 3000)
+        }
+      } catch (loginErr) {
+        success.value = '회원가입이 완료되었습니다. 로그인 페이지에서 로그인해주세요.'
+        setTimeout(() => {
+          router.push('/login')
+        }, 3000)
+      }
+      
       // 폼 초기화
       email.value = ''
       password.value = ''
       confirmPassword.value = ''
-      // 3초 후 로그인 페이지로 이동
-      setTimeout(() => {
-        router.push('/login')
-      }, 3000)
     }
   } catch (err) {
     error.value = '회원가입 중 오류가 발생했습니다.'

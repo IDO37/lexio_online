@@ -1,12 +1,13 @@
 <script setup>
 import { ref } from 'vue'
-import { supabase } from '../lib/supabase.js'
+import { useAuthStore } from '../store/auth.js'
 import { useRouter } from 'vue-router'
 
 const email = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
+const auth = useAuthStore()
 const router = useRouter()
 
 async function handleLogin() {
@@ -14,15 +15,14 @@ async function handleLogin() {
   loading.value = true
   
   try {
-    const { error: err } = await supabase.auth.signInWithPassword({
-      email: email.value,
-      password: password.value
-    })
+    const result = await auth.login(email.value, password.value)
     
-    if (err) {
-      error.value = err.message
-    } else {
+    if (result.success) {
+      // 로그인 성공 시 홈으로 이동
       router.push('/')
+    } else {
+      // 로그인 실패 시 에러 메시지 표시
+      error.value = result.error || '로그인에 실패했습니다.'
     }
   } catch (err) {
     error.value = '로그인 중 오류가 발생했습니다.'
@@ -62,10 +62,10 @@ async function handleLogin() {
         <div v-if="error" class="text-red-400 text-sm text-center">{{ error }}</div>
         <button
           type="submit"
-          :disabled="loading"
+          :disabled="loading || auth.loading"
           class="w-full bg-highlight-red text-white font-bold rounded-lg px-4 py-2 transition hover:bg-highlight-red-dark disabled:opacity-50"
         >
-          {{ loading ? '로그인 중...' : '로그인' }}
+          {{ (loading || auth.loading) ? '로그인 중...' : '로그인' }}
         </button>
       </form>
       <div class="mt-4 text-center">

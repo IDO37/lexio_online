@@ -16,8 +16,12 @@
           
           <div v-if="auth.user" class="flex items-center space-x-2">
             <span class="text-lexio-text-muted text-sm">{{ auth.user.email }}</span>
-            <button @click="auth.logout" class="bg-highlight-red text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-highlight-red-dark transition">
-              로그아웃
+            <button 
+              @click="handleLogout" 
+              :disabled="auth.loading"
+              class="bg-highlight-red text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-highlight-red-dark transition disabled:opacity-50"
+            >
+              {{ auth.loading ? '로그아웃 중...' : '로그아웃' }}
             </button>
           </div>
           <div v-else class="flex items-center space-x-2">
@@ -34,8 +38,15 @@
 
 <script setup>
 import { useAuthStore } from '../store/auth.js'
+import { useRouter } from 'vue-router'
 
 const auth = useAuthStore()
+const router = useRouter()
+
+async function handleLogout() {
+  await auth.logout()
+  router.push('/')
+}
 </script>
 
 <style scoped>
