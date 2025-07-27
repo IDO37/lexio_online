@@ -2,7 +2,16 @@
   <div class="bg-lexio-bg-light rounded-xl shadow-lg p-8 w-full max-w-xs flex flex-col items-center border border-gray-600">
     <img src="/favicon.svg" alt="렉시오 로고" class="w-16 h-16 mb-4" />
     <h3 class="text-xl font-bold text-highlight-red mb-4">Create a new game</h3>
-    <form class="flex flex-col gap-4 w-full" @submit.prevent="createRoom">
+    
+    <!-- 로딩 상태 -->
+    <div v-if="creating" class="w-full text-center py-8">
+      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-highlight-red mx-auto mb-4"></div>
+      <p class="text-lexio-text-muted">방을 생성하고 있습니다...</p>
+      <p class="text-sm text-lexio-text-muted mt-2">잠시만 기다려주세요</p>
+    </div>
+    
+    <!-- 방 생성 폼 -->
+    <form v-else class="flex flex-col gap-4 w-full" @submit.prevent="createRoom">
       <input v-model="name" type="text" placeholder="Room Name (optional)" class="rounded-lg px-4 py-2 bg-lexio-bg text-lexio-text focus:outline-none focus:ring-2 focus:ring-highlight-red transition placeholder-gray-400" />
       <select v-model="players" class="rounded-lg px-4 py-2 bg-lexio-bg text-lexio-text focus:outline-none focus:ring-2 focus:ring-highlight-red transition">
         <option value="3">3 Players</option>
@@ -33,6 +42,7 @@ const players = ref(3)
 const usePassword = ref(false)
 const password = ref('')
 const loading = ref(false)
+const creating = ref(false)
 const auth = useAuthStore()
 const router = useRouter()
 
@@ -41,7 +51,9 @@ async function createRoom() {
     alert('로그인 후 방을 생성할 수 있습니다.')
     return
   }
+  
   loading.value = true
+  creating.value = true
   
   try {
     // 방 생성
@@ -56,6 +68,7 @@ async function createRoom() {
     
     if (error) {
       alert('방 생성 실패: ' + error.message)
+      creating.value = false
       return
     }
     
@@ -92,11 +105,16 @@ async function createRoom() {
         retryCount++
       }
       
-      // 생성된 방으로 이동
-      router.push(`/game/${room.id}`)
+      // 2초 후 게임 방으로 이동 (로딩 애니메이션 표시)
+      setTimeout(() => {
+        // 현재 페이지를 새로고침하여 게임 방으로 이동
+        window.location.href = `/game/${room.id}`
+      }, 2000)
+      
     }
   } catch (err) {
     alert('방 생성 중 오류가 발생했습니다.')
+    creating.value = false
   } finally {
     loading.value = false
   }

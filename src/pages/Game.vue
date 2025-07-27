@@ -23,12 +23,29 @@
 
     <!-- 게임 방 페이지 (roomId가 있을 때) -->
     <div v-else class="w-full max-w-6xl">
-      <div v-if="loading" class="text-center text-lexio-text-muted py-8">
-        <div class="mb-2">방 정보를 불러오는 중...</div>
+      <div v-if="loading" class="text-center py-12">
+        <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-highlight-red mx-auto mb-6"></div>
+        <div class="text-lexio-text-muted text-lg mb-2">방 정보를 불러오는 중...</div>
         <div class="text-sm text-gray-500">잠시만 기다려주세요</div>
       </div>
-      <div v-else-if="error" class="text-center text-red-400 py-8">{{ error }}</div>
-      <div v-else-if="!room" class="text-center text-red-400 py-8">방을 찾을 수 없습니다.</div>
+      <div v-else-if="error" class="text-center py-12">
+        <div class="text-red-400 text-lg mb-4">{{ error }}</div>
+        <button 
+          @click="retryLoad" 
+          class="bg-highlight-red text-white font-bold rounded-lg px-6 py-2 transition hover:bg-highlight-red-dark"
+        >
+          다시 시도
+        </button>
+      </div>
+      <div v-else-if="!room" class="text-center py-12">
+        <div class="text-red-400 text-lg mb-4">방을 찾을 수 없습니다.</div>
+        <router-link 
+          to="/game" 
+          class="bg-highlight-red text-white font-bold rounded-lg px-6 py-2 transition hover:bg-highlight-red-dark"
+        >
+          방 목록으로 돌아가기
+        </router-link>
+      </div>
       <div v-else class="flex flex-col gap-6">
         <!-- 방 헤더 -->
         <div class="flex items-center justify-between bg-lexio-bg-light rounded-xl p-4">
@@ -341,5 +358,10 @@ async function leaveRoom() {
     console.error('방 나가기 중 오류:', err)
     router.push('/game')
   }
+}
+
+async function retryLoad() {
+  error.value = ''
+  await loadRoom()
 }
 </script> 
