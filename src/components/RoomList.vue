@@ -2,6 +2,14 @@
   <div class="bg-gray-700 rounded-xl shadow-md p-4 flex flex-col gap-2 w-full max-w-md mx-auto">
     <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-2 gap-2">
       <div class="text-sm text-gray-300 font-semibold">방 목록</div>
+      <label class="flex items-center gap-2 text-xs text-gray-300">
+        <input 
+          type="checkbox" 
+          v-model="showPasswordRooms" 
+          class="accent-highlight-yellow"
+        />
+        비밀번호 방 표시
+      </label>
     </div>
     <div v-if="!isAuthed" class="text-xs text-yellow-400 mb-2">로그인해야 방 생성/입장이 가능합니다.</div>
     <div v-if="loading" class="text-center text-gray-400 py-8">불러오는 중...</div>
@@ -20,6 +28,7 @@
           <span class="text-xs text-gray-400">({{ room.players }}/{{ room.max_players || 4 }})</span>
           <span v-if="room.status === 'playing'" class="ml-2 text-xs text-yellow-400">진행중</span>
           <span v-else class="ml-2 text-xs text-green-400">대기중</span>
+          <span v-if="!room.is_public" class="ml-2 text-xs text-red-400">🔒</span>
         </div>
         <button
           class="bg-highlight-yellow text-gray-900 font-semibold rounded-xl px-4 py-2 text-base shadow-md transition hover:bg-yellow-400/80 focus:outline-none focus:ring-2 focus:ring-highlight-yellow disabled:opacity-50"
@@ -53,15 +62,27 @@ const rooms = ref([])
 const loading = ref(false)
 const error = ref('')
 const router = useRouter()
+const showPasswordRooms = ref(false)
 
 const isAuthed = computed(() => !!auth.user)
 
-// 검색 필터링된 방 목록
+// 검색 및 비밀번호 방 필터링된 방 목록
 const filteredRooms = computed(() => {
-  if (!props.search) return rooms.value
-  return rooms.value.filter(room => 
-    room.name.toLowerCase().includes(props.search.toLowerCase())
-  )
+  let filtered = rooms.value
+  
+  // 비밀번호 방 필터링
+  if (!showPasswordRooms.value) {
+    filtered = filtered.filter(room => room.is_public !== false)
+  }
+  
+  // 검색 필터링
+  if (props.search) {
+    filtered = filtered.filter(room => 
+      room.name.toLowerCase().includes(props.search.toLowerCase())
+    )
+  }
+  
+  return filtered
 })
 
 // 실시간 구독
@@ -123,6 +144,17 @@ async function joinRoom(room) {
   if (!isAuthed.value) {
     alert('로그인 후 입장할 수 있습니다.')
     return
+  }
+  
+  // 비밀번호 방인 경우 비밀번호 확인
+  if (!room.is_public && room.password) {
+    const password = prompt('비밀번호를 입력하세요:')
+    if (!password) return
+    
+    if (password !== room.password) {
+      alert('비밀번호가 올바르지 않습니다.')
+      return
+    }
   }
   
   try {

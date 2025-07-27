@@ -51,8 +51,7 @@ async function createRoom() {
       created_by: auth.user.id,
       max_players: players.value,
       is_public: !usePassword.value,
-      password: usePassword.value ? password.value : null,
-      players: 1 // 생성자가 첫 번째 플레이어
+      password: usePassword.value ? password.value : null
     }).select()
     
     if (error) {

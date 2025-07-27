@@ -164,7 +164,18 @@ async function loadPlayers() {
       joinedAt: p.joined_at,
       isMe: p.user_id === auth.user?.id
     }))
+    
+    // 방의 플레이어 수 업데이트
+    await updateRoomPlayerCount(data.length)
   }
+}
+
+async function updateRoomPlayerCount(count) {
+  // 방의 플레이어 수를 업데이트
+  await supabase
+    .from('lo_rooms')
+    .update({ players: count })
+    .eq('id', roomId.value)
 }
 
 async function loadGameData() {
@@ -257,6 +268,7 @@ function setupRealtimeSubscriptions() {
         // 방에 플레이어가 없으면 방 삭제
         if (players.value.length === 0) {
           await supabase.from('lo_rooms').delete().eq('id', roomId.value)
+          router.push('/game')
         }
         return
       }
@@ -285,6 +297,17 @@ async function leaveRoom() {
     
     if (error) {
       console.error('방 나가기 실패:', error)
+    } else {
+      // 남은 플레이어 수 확인
+      const { data: remainingPlayers } = await supabase
+        .from('lo_room_players')
+        .select('*')
+        .eq('room_id', roomId.value)
+      
+      if (remainingPlayers && remainingPlayers.length === 0) {
+        // 방에 플레이어가 없으면 방 삭제
+        await supabase.from('lo_rooms').delete().eq('id', roomId.value)
+      }
     }
     
     // 방 목록으로 돌아가기
