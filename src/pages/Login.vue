@@ -9,18 +9,25 @@ const error = ref('')
 const loading = ref(false)
 const router = useRouter()
 
-async function login() {
+async function handleLogin() {
   error.value = ''
   loading.value = true
-  const { error: err } = await supabase.auth.signInWithPassword({
-    email: email.value,
-    password: password.value
-  })
-  loading.value = false
-  if (err) {
-    error.value = err.message
-  } else {
-    router.push('/')
+  
+  try {
+    const { error: err } = await supabase.auth.signInWithPassword({
+      email: email.value,
+      password: password.value
+    })
+    
+    if (err) {
+      error.value = err.message
+    } else {
+      router.push('/')
+    }
+  } catch (err) {
+    error.value = '로그인 중 오류가 발생했습니다.'
+  } finally {
+    loading.value = false
   }
 }
 </script>

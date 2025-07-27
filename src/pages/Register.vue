@@ -1,36 +1,62 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { supabase } from '../lib/supabase.js'
 import { useRouter } from 'vue-router'
 
 const email = ref('')
 const password = ref('')
-const passwordConfirm = ref('')
+const confirmPassword = ref('')
 const error = ref('')
+const success = ref('')
 const loading = ref(false)
 const router = useRouter()
 
-async function register() {
+// 폼 유효성 검사
+const isFormValid = computed(() => {
+  return email.value && 
+         password.value.length >= 6 && 
+         password.value === confirmPassword.value
+})
+
+async function handleRegister() {
   error.value = ''
+  success.value = ''
+  
   if (password.value.length < 6) {
     error.value = '비밀번호는 6자 이상이어야 합니다.'
     return
   }
-  if (password.value !== passwordConfirm.value) {
+  
+  if (password.value !== confirmPassword.value) {
     error.value = '비밀번호가 일치하지 않습니다.'
     return
   }
+  
   loading.value = true
-  const { error: err } = await supabase.auth.signUp({
-    email: email.value,
-    password: password.value
-  })
-  loading.value = false
-  if (err) {
-    error.value = err.message
-  } else {
-    alert('회원가입이 완료되었습니다. 이메일 인증을 확인해 주세요.')
-    router.push('/login')
+  
+  try {
+    const { error: err } = await supabase.auth.signUp({
+      email: email.value,
+      password: password.value
+    })
+    
+    if (err) {
+      error.value = err.message
+    } else {
+      success.value = '회원가입이 완료되었습니다. 이메일 인증을 확인해 주세요.'
+      // 폼 초기화
+      email.value = ''
+      password.value = ''
+      confirmPassword.value = ''
+      // 3초 후 로그인 페이지로 이동
+      setTimeout(() => {
+        router.push('/login')
+      }, 3000)
+    }
+  } catch (err) {
+    error.value = '회원가입 중 오류가 발생했습니다.'
+  } finally {
+    loading.value = false
   }
 }
 </script>
