@@ -85,6 +85,15 @@ export const useGameStore = defineStore('game', {
           return
         }
         
+        // 첫 턴인 경우 구름 3을 플레이해야 함
+        if (!this.lastPlayedCombo) {
+          const hasCloud3 = selectedCards.some(card => card.suit === 'cloud' && card.rank === '3')
+          if (!hasCloud3) {
+            this.error = '첫 턴에는 구름 3을 플레이해야 합니다.'
+            return
+          }
+        }
+        
         // 카드를 게임 보드에 제출
         await this.submitCardsToBoard(selectedCards, combo)
         
@@ -235,6 +244,18 @@ export const useGameStore = defineStore('game', {
         await this.cpuPass(cpuId)
         return
       }
+      
+      // 첫 턴인 경우 구름 3을 우선적으로 플레이
+      if (!this.lastPlayedCombo) {
+        const cloud3 = hand.find(card => card.suit === 'cloud' && card.rank === '3')
+        if (cloud3) {
+          await this.submitCardsToBoard([cloud3], getCombo([cloud3]))
+          await this.removeCpuCardsFromHand(cpuId, [cloud3])
+          await this.nextTurn()
+          return
+        }
+      }
+      
       // 가능한 조합 찾기 (싱글, 페어, 트리플, ...)
       let playCards = null
       for (let n = 1; n <= Math.min(5, hand.length); n++) {

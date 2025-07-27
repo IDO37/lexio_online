@@ -77,9 +77,7 @@
         <!-- 게임 시작 조건 경고 -->
         <div v-if="room.status === 'waiting' && isRoomOwner && !canStartGame" class="bg-yellow-600 bg-opacity-20 border border-yellow-600 rounded-lg p-4">
           <div class="text-yellow-400 font-semibold mb-2">게임 시작 조건</div>
-          <div class="text-yellow-300 text-sm">
-            최소 2명 이상의 플레이어가 필요합니다. (현재: {{ players.length }}명)
-          </div>
+          <div class="text-yellow-300 text-sm">{{ startGameWarning }}</div>
         </div>
         
         <!-- 게임 컨텐츠 -->
@@ -109,6 +107,7 @@
               :myHand="gameStore.myHand" 
               :isMyTurn="gameStore.isMyTurn"
               :currentPlayerName="gameStore.currentPlayer?.name || ''"
+              :isFirstTurn="!gameStore.lastPlayedCombo"
             />
           </div>
         </div>
@@ -295,8 +294,19 @@ const hasCpuPlayers = computed(() => {
   return cpuPlayerCount.value > 0
 })
 
+// 게임 시작 조건을 방 설정 인원수에 맞게 수정
 const canStartGame = computed(() => {
-  return players.value.length >= 2
+  return players.value.length >= (room.value?.max_players || 4)
+})
+
+// 게임 시작 조건 경고 메시지도 수정
+const startGameWarning = computed(() => {
+  const maxPlayers = room.value?.max_players || 4
+  const currentPlayers = players.value.length
+  if (currentPlayers < maxPlayers) {
+    return `최소 ${maxPlayers}명의 플레이어가 필요합니다. (현재: ${currentPlayers}명)`
+  }
+  return ''
 })
 
 // 유틸리티 함수
@@ -346,6 +356,11 @@ async function loadRoom() {
     
     // 플레이어 목록 로드
     await loadPlayers()
+    
+    // 방 생성자가 플레이어 목록에 없으면 자동으로 추가
+    if (roomData.created_by && !players.value.find(p => p.id === roomData.created_by)) {
+      await addRoomCreatorAsPlayer(roomData.created_by)
+    }
     
     // 게임 정보 로드 (진행 중인 경우)
     if (roomData.status === 'playing') {
@@ -552,13 +567,13 @@ async function startGame() {
   if (!isRoomOwner.value || !canStartGame.value) return
   
   try {
-    // 게임 생성
+    // 게임 생성 (임시로 첫 번째 플레이어로 설정)
     const { data: gameData, error: gameError } = await supabase
       .from('lo_games')
       .insert({
         room_id: roomId.value,
         status: 'playing',
-        current_turn_user_id: players.value[0]?.id,
+        current_turn_user_id: players.value[0]?.id, // 임시 설정
         created_by: auth.user?.id
       })
       .select()
@@ -568,6 +583,17 @@ async function startGame() {
     
     // 카드 분배 (CPU 포함)
     await distributeCards(gameData.id)
+    
+    // 구름 3을 가진 플레이어 찾기
+    const firstTurnPlayerId = await findPlayerWithCloud3(gameData.id)
+    
+    // 첫 턴 플레이어로 업데이트
+    if (firstTurnPlayerId) {
+      await supabase
+        .from('lo_games')
+        .update({ current_turn_user_id: firstTurnPlayerId })
+        .eq('id', gameData.id)
+    }
     
     // 방 상태 업데이트
     await supabase
@@ -691,25 +717,30 @@ async function leaveRoom() {
   if (!auth.user || !roomId.value) return
   
   try {
-    // 플레이어를 방에서 제거
-    const { error } = await supabase
-      .from('lo_room_players')
-      .delete()
-      .eq('room_id', roomId.value)
-      .eq('user_id', auth.user.id)
-    
-    if (error) {
-      console.error('방 나가기 실패:', error)
+    // 방장이 나가는 경우 방 삭제
+    if (isRoomOwner.value) {
+      await supabase.from('lo_rooms').delete().eq('id', roomId.value)
     } else {
-      // 남은 플레이어 수 확인
-      const { data: remainingPlayers } = await supabase
+      // 일반 플레이어는 방에서 제거
+      const { error } = await supabase
         .from('lo_room_players')
-        .select('*')
+        .delete()
         .eq('room_id', roomId.value)
+        .eq('user_id', auth.user.id)
       
-      if (remainingPlayers && remainingPlayers.length === 0) {
-        // 방에 플레이어가 없으면 방 삭제
-        await supabase.from('lo_rooms').delete().eq('id', roomId.value)
+      if (error) {
+        console.error('방 나가기 실패:', error)
+      } else {
+        // 남은 플레이어 수 확인
+        const { data: remainingPlayers } = await supabase
+          .from('lo_room_players')
+          .select('*')
+          .eq('room_id', roomId.value)
+        
+        if (remainingPlayers && remainingPlayers.length === 0) {
+          // 방에 플레이어가 없으면 방 삭제
+          await supabase.from('lo_rooms').delete().eq('id', roomId.value)
+        }
       }
     }
     
@@ -725,5 +756,79 @@ async function leaveRoom() {
 async function retryLoad() {
   error.value = ''
   await loadRoom()
+}
+
+async function addRoomCreatorAsPlayer(creatorId) {
+  try {
+    // 방 생성자의 프로필 정보 가져오기
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('id', creatorId)
+      .single()
+    
+    if (profileError) {
+      console.error('방 생성자 프로필 로드 오류:', profileError)
+      return
+    }
+    
+    // 방 생성자를 플레이어로 추가
+    const { error: insertError } = await supabase
+      .from('lo_room_players')
+      .insert({
+        room_id: roomId.value,
+        user_id: creatorId,
+        joined_at: new Date().toISOString()
+      })
+    
+    if (insertError) {
+      console.error('방 생성자 플레이어 추가 오류:', insertError)
+      return
+    }
+    
+    // 로컬 상태에 추가
+    const creatorPlayer = {
+      id: creatorId,
+      email: profile.email || 'Unknown',
+      joinedAt: new Date().toISOString(),
+      handCount: 0
+    }
+    
+    // 첫 번째 위치에 추가
+    players.value.unshift(creatorPlayer)
+    
+    // 방의 플레이어 수 업데이트
+    await updateRoomPlayerCount(players.value.length)
+    
+  } catch (err) {
+    console.error('방 생성자 플레이어 추가 오류:', err)
+  }
+}
+
+async function findPlayerWithCloud3(gameId) {
+  try {
+    // 구름 3을 가진 플레이어 찾기
+    const { data, error } = await supabase
+      .from('lo_cards')
+      .select('owner_id')
+      .eq('game_id', gameId)
+      .eq('suit', 'cloud')
+      .eq('rank', '3')
+      .eq('in_hand', true)
+      .single()
+    
+    if (error || !data) {
+      console.error('구름 3을 찾을 수 없습니다:', error)
+      // 구름 3이 없으면 첫 번째 플레이어로 설정
+      return players.value[0]?.id
+    }
+    
+    return data.owner_id
+    
+  } catch (err) {
+    console.error('구름 3 플레이어 찾기 오류:', err)
+    // 오류 발생 시 첫 번째 플레이어로 설정
+    return players.value[0]?.id
+  }
 }
 </script> 

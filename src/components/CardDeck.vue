@@ -72,6 +72,11 @@
       {{ currentPlayerName }}님의 턴을 기다리는 중...
     </div>
     
+    <!-- 첫 턴 안내 -->
+    <div v-if="isMyTurn && isFirstTurn" class="text-center text-highlight-red text-sm font-bold bg-highlight-red bg-opacity-20 rounded-lg p-2 mb-2">
+      첫 턴입니다! 구름 3을 플레이하세요.
+    </div>
+    
     <!-- 오류 메시지 -->
     <div v-if="error" class="text-red-400 text-sm text-center">
       {{ error }}
@@ -87,7 +92,8 @@ import { getComboName } from '../store/game.js'
 const props = defineProps({
   myHand: { type: Array, required: true },
   isMyTurn: { type: Boolean, required: true },
-  currentPlayerName: { type: String, default: '' }
+  currentPlayerName: { type: String, default: '' },
+  isFirstTurn: { type: Boolean, default: false }
 })
 
 const gameStore = useGameStore()
