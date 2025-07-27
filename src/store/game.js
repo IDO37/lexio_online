@@ -85,11 +85,11 @@ export const useGameStore = defineStore('game', {
           return
         }
         
-        // 첫 턴인 경우 구름 3을 플레이해야 함
+        // 첫 턴인 경우 cloud 3을 플레이해야 함 (렉시오 규칙)
         if (!this.lastPlayedCombo) {
           const hasCloud3 = selectedCards.some(card => card.suit === 'cloud' && card.rank === '3')
           if (!hasCloud3) {
-            this.error = '첫 턴에는 구름 3을 플레이해야 합니다.'
+            this.error = '첫 턴에는 cloud 3을 플레이해야 합니다.'
             return
           }
         }
@@ -175,7 +175,7 @@ export const useGameStore = defineStore('game', {
     removeCardsFromHand(cards) {
       const cardIds = cards.map(c => `${c.suit}-${c.rank}`)
       this.myHand = this.myHand.filter(card => 
-        !cardIds.includes(`${card.suit}-${card.rank}`)
+        !cardIds.includes(`${card.suit}-${c.rank}`)
       )
     },
     
@@ -245,16 +245,16 @@ export const useGameStore = defineStore('game', {
         return
       }
       
-      // 첫 턴인 경우 구름 3을 우선적으로 플레이
-      if (!this.lastPlayedCombo) {
-        const cloud3 = hand.find(card => card.suit === 'cloud' && card.rank === '3')
-        if (cloud3) {
-          await this.submitCardsToBoard([cloud3], getCombo([cloud3]))
-          await this.removeCpuCardsFromHand(cpuId, [cloud3])
-          await this.nextTurn()
-          return
+              // 첫 턴인 경우 cloud 3을 우선적으로 플레이 (렉시오 규칙)
+        if (!this.lastPlayedCombo) {
+          const cloud3 = hand.find(card => card.suit === 'cloud' && card.rank === '3')
+          if (cloud3) {
+            await this.submitCardsToBoard([cloud3], getCombo([cloud3]))
+            await this.removeCpuCardsFromHand(cpuId, [cloud3])
+            await this.nextTurn()
+            return
+          }
         }
-      }
       
       // 가능한 조합 찾기 (싱글, 페어, 트리플, ...)
       let playCards = null
@@ -305,78 +305,123 @@ export const useGameStore = defineStore('game', {
   }
 })
 
+// 렉시오 타일 구조 (sun, moon, star, cloud)
+export const SUITS = {
+  CLOUD: 'cloud',
+  STAR: 'star', 
+  MOON: 'moon',
+  SUN: 'sun'
+}
+
+export const SUIT_RANKS = {
+  [SUITS.CLOUD]: 1,  // 가장 약함
+  [SUITS.STAR]: 2,
+  [SUITS.MOON]: 3,
+  [SUITS.SUN]: 4     // 가장 강함
+}
+
+// 렉시오 조합 타입과 우선순위
+export const COMBO_TYPES = {
+  SINGLE: 'single',
+  PAIR: 'pair',
+  TRIPLE: 'triple',
+  STRAIGHT: 'straight',
+  FULL_HOUSE: 'full_house',
+  FOUR_CARD: 'four_card',
+  STRAIGHT_FLUSH: 'straight_flush'
+}
+
+export const COMBO_RANKS = {
+  [COMBO_TYPES.SINGLE]: 1,
+  [COMBO_TYPES.PAIR]: 2,
+  [COMBO_TYPES.TRIPLE]: 3,
+  [COMBO_TYPES.STRAIGHT]: 4,
+  [COMBO_TYPES.FULL_HOUSE]: 5,
+  [COMBO_TYPES.FOUR_CARD]: 6,
+  [COMBO_TYPES.STRAIGHT_FLUSH]: 7
+}
+
 // 렉시오 카드 조합 분석 함수들
-function getCombo(cards) {
-  if (!cards || cards.length === 0) return null
+function getCombo(tiles) {
+  if (!tiles || tiles.length === 0) return null
   
-  const sortedCards = [...cards].sort((a, b) => getCardValue(b.rank) - getCardValue(a.rank))
-  const ranks = sortedCards.map(c => c.rank)
-  const rankCounts = getRankCounts(ranks)
+  const sortedTiles = [...tiles].sort((a, b) => getTileValue(b) - getTileValue(a))
+  const numbers = sortedTiles.map(t => t.number)
+  const numberCounts = getNumberCounts(numbers)
   
-  // 파이브카드 (5장)
-  if (cards.length === 5 && Object.values(rankCounts).some(count => count === 5)) {
-    return { type: 'five_card', value: getCardValue(ranks[0]) }
+  // 스트레이트 플러시 (같은 문양의 연속 숫자 5장)
+  if (tiles.length === 5 && isStraightFlush(tiles)) {
+    return { type: COMBO_TYPES.STRAIGHT_FLUSH, value: getTileValue(sortedTiles[0]) }
   }
   
-  // 포카드 (4장)
-  if (cards.length === 4 && Object.values(rankCounts).some(count => count === 4)) {
-    return { type: 'four_card', value: getCardValue(ranks[0]) }
+  // 포카드 (같은 숫자 4장 + 아무 한 장)
+  if (tiles.length === 5 && Object.values(numberCounts).some(count => count === 4)) {
+    const fourNumber = Object.keys(numberCounts).find(num => numberCounts[num] === 4)
+    return { type: COMBO_TYPES.FOUR_CARD, value: parseInt(fourNumber) }
   }
   
-  // 풀하우스 (5장: 3장 + 2장)
-  if (cards.length === 5) {
-    const counts = Object.values(rankCounts).sort((a, b) => b - a)
+  // 풀하우스 (트리플 + 페어)
+  if (tiles.length === 5) {
+    const counts = Object.values(numberCounts).sort((a, b) => b - a)
     if (counts[0] === 3 && counts[1] === 2) {
-      const threeRank = Object.keys(rankCounts).find(rank => rankCounts[rank] === 3)
-      return { type: 'full_house', value: getCardValue(threeRank) }
+      const threeNumber = Object.keys(numberCounts).find(num => numberCounts[num] === 3)
+      return { type: COMBO_TYPES.FULL_HOUSE, value: parseInt(threeNumber) }
     }
   }
   
-  // 스트레이트 (5장 연속)
-  if (cards.length === 5 && isStraight(ranks)) {
-    return { type: 'straight', value: getCardValue(ranks[0]) }
+  // 스트레이트 (연속된 숫자 5장, 문양 무관)
+  if (tiles.length === 5 && isStraight(numbers)) {
+    return { type: COMBO_TYPES.STRAIGHT, value: getTileValue(sortedTiles[0]) }
   }
   
-  // 트리플 (3장)
-  if (cards.length === 3 && Object.values(rankCounts).some(count => count === 3)) {
-    return { type: 'triple', value: getCardValue(ranks[0]) }
+  // 트리플 (같은 숫자 3장)
+  if (tiles.length === 3 && Object.values(numberCounts).some(count => count === 3)) {
+    return { type: COMBO_TYPES.TRIPLE, value: getTileValue(sortedTiles[0]) }
   }
   
-  // 페어 (2장)
-  if (cards.length === 2 && Object.values(rankCounts).some(count => count === 2)) {
-    return { type: 'pair', value: getCardValue(ranks[0]) }
+  // 페어 (같은 숫자 2장)
+  if (tiles.length === 2 && Object.values(numberCounts).some(count => count === 2)) {
+    return { type: COMBO_TYPES.PAIR, value: getTileValue(sortedTiles[0]) }
   }
   
-  // 싱글 (1장)
-  if (cards.length === 1) {
-    return { type: 'single', value: getCardValue(ranks[0]) }
+  // 싱글 (한 장)
+  if (tiles.length === 1) {
+    return { type: COMBO_TYPES.SINGLE, value: getTileValue(sortedTiles[0]) }
   }
   
   return null
 }
 
-function getCardValue(rank) {
-  const values = {
-    'A': 14, 'K': 13, 'Q': 12, 'J': 11,
-    '10': 10, '9': 9, '8': 8, '7': 7,
-    '6': 6, '5': 5, '4': 4, '3': 3, '2': 2
-  }
-  return values[rank] || 0
+function getTileValue(tile) {
+  // 렉시오 규칙: 숫자 + 문양 순위 (3이 가장 낮음, 2가 가장 높음)
+  // 숫자 순위: 3=1, 4=2, ..., 2=13 (2가 가장 높음)
+  const numberRank = tile.number === 2 ? 13 : tile.number - 2
+  return numberRank * 10 + SUIT_RANKS[tile.suit]
 }
 
-function getRankCounts(ranks) {
-  return ranks.reduce((counts, rank) => {
-    counts[rank] = (counts[rank] || 0) + 1
+function getNumberCounts(numbers) {
+  return numbers.reduce((counts, num) => {
+    counts[num] = (counts[num] || 0) + 1
     return counts
   }, {})
 }
 
-function isStraight(ranks) {
-  const values = ranks.map(r => getCardValue(r)).sort((a, b) => b - a)
-  for (let i = 1; i < values.length; i++) {
-    if (values[i-1] - values[i] !== 1) return false
+function isStraight(numbers) {
+  const sortedNumbers = [...numbers].sort((a, b) => b - a)
+  for (let i = 1; i < sortedNumbers.length; i++) {
+    if (sortedNumbers[i-1] - sortedNumbers[i] !== 1) return false
   }
   return true
+}
+
+function isStraightFlush(tiles) {
+  // 같은 문양인지 확인
+  const firstSuit = tiles[0].suit
+  if (!tiles.every(tile => tile.suit === firstSuit)) return false
+  
+  // 연속된 숫자인지 확인
+  const numbers = tiles.map(t => t.number).sort((a, b) => b - a)
+  return isStraight(numbers)
 }
 
 function getComboValue(combo) {
@@ -384,31 +429,22 @@ function getComboValue(combo) {
 }
 
 function getComboRank(comboType) {
-  const ranks = {
-    'five_card': 7,
-    'four_card': 6,
-    'full_house': 5,
-    'straight': 4,
-    'triple': 3,
-    'pair': 2,
-    'single': 1
-  }
-  return ranks[comboType] || 0
+  return COMBO_RANKS[comboType] || 0
 }
 
 // 조합 이름을 한글로 변환
 export function getComboName(comboType) {
   const names = {
-    'five_card': '파이브카드',
-    'four_card': '포카드',
-    'full_house': '풀하우스',
-    'straight': '스트레이트',
-    'triple': '트리플',
-    'pair': '페어',
-    'single': '싱글'
+    [COMBO_TYPES.SINGLE]: '싱글',
+    [COMBO_TYPES.PAIR]: '페어',
+    [COMBO_TYPES.TRIPLE]: '트리플',
+    [COMBO_TYPES.STRAIGHT]: '스트레이트',
+    [COMBO_TYPES.FULL_HOUSE]: '풀하우스',
+    [COMBO_TYPES.FOUR_CARD]: '포카드',
+    [COMBO_TYPES.STRAIGHT_FLUSH]: '스트레이트 플러시'
   }
   return names[comboType] || '알 수 없음'
-} 
+}
 
 // 조합 생성 함수 (n장 중복 없는 조합)
 function getCombinations(arr, n) {

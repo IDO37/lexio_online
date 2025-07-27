@@ -75,16 +75,12 @@ const props = defineProps({
 
 function cardDisplay(card) {
   const suitMap = { 
-    'hearts': '♥️', 
-    'diamonds': '♦️', 
-    'clubs': '♣️', 
-    'spades': '♠️',
     'sun': '☀️', 
     'moon': '🌙', 
     'star': '⭐', 
     'cloud': '☁️' 
   }
-  return `${suitMap[card.suit] || ''} ${card.rank}`
+  return `${suitMap[card.suit] || card.suit} ${card.rank}`
 }
 </script>
 

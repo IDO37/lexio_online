@@ -322,7 +322,10 @@ function formatDate(dateString) {
 onMounted(async () => {
   if (roomId.value) {
     await loadRoom()
-    setupRealtimeSubscriptions()
+    // 방 로드 완료 후 실시간 구독 설정
+    setTimeout(() => {
+      setupRealtimeSubscriptions()
+    }, 500)
   }
 })
 
@@ -361,6 +364,8 @@ async function loadRoom() {
     if (roomData.created_by && !players.value.find(p => p.id === roomData.created_by)) {
       console.log('방 생성자를 플레이어로 추가합니다:', roomData.created_by)
       await addRoomCreatorAsPlayer(roomData.created_by)
+      // 플레이어 목록을 다시 로드하여 정렬된 상태 확인
+      await loadPlayers()
     }
     
     // 게임 정보 로드 (진행 중인 경우)
@@ -387,6 +392,8 @@ async function loadPlayers() {
     .order('joined_at', { ascending: true })
   
   if (!err && data) {
+    console.log('플레이어 목록 로드:', data.length, '명')
+    
     let playerList = data.map(p => {
       const isCpu = p.user_id.startsWith('cpu')
       return {
@@ -400,16 +407,26 @@ async function loadPlayers() {
     // 방 생성자를 첫 번째로 정렬
     if (room.value?.created_by) {
       const creatorIndex = playerList.findIndex(p => p.id === room.value.created_by)
+      console.log('방 생성자 ID:', room.value.created_by, '찾은 인덱스:', creatorIndex)
+      
       if (creatorIndex > 0) {
         const creator = playerList.splice(creatorIndex, 1)[0]
         playerList.unshift(creator)
+        console.log('방 생성자를 첫 번째로 이동:', creator.email)
+      } else if (creatorIndex === 0) {
+        console.log('방 생성자가 이미 첫 번째 위치에 있습니다.')
+      } else {
+        console.log('방 생성자를 플레이어 목록에서 찾을 수 없습니다.')
       }
     }
     
     players.value = playerList
+    console.log('최종 플레이어 목록:', players.value.map(p => `${p.email} (${p.id})`))
     
     // 방의 플레이어 수 업데이트
     await updateRoomPlayerCount(data.length)
+  } else {
+    console.error('플레이어 목록 로드 오류:', err)
   }
 }
 
@@ -602,7 +619,7 @@ async function startGame() {
     // 카드 분배 (CPU 포함)
     await distributeCards(gameData.id)
     
-    // 구름 3을 가진 플레이어 찾기
+    // cloud 3을 가진 플레이어 찾기 (렉시오 규칙)
     const firstTurnPlayerId = await findPlayerWithCloud3(gameData.id)
     
     // 첫 턴 플레이어로 업데이트
@@ -696,39 +713,65 @@ async function removeCpu() {
 }
 
 async function distributeCards(gameId) {
-  // 간단한 카드 분배 (실제로는 더 복잡한 로직 필요)
-  const suits = ['hearts', 'diamonds', 'clubs', 'spades']
-  const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+  // 플레이어 수에 따른 렉시오 타일 분배
+  const playerCount = players.value.length
+  const suits = ['cloud', 'star', 'moon', 'sun']
   
-  const cards = []
+  let numbers, totalCards, cardsPerPlayer
+  
+  if (playerCount === 3) {
+    // 3인: 1~9까지, 각자 12장씩 (총 36장)
+    numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    totalCards = 36
+    cardsPerPlayer = 12
+  } else if (playerCount === 4) {
+    // 4인: 1~13까지, 각자 13장씩 (총 52장)
+    numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+    totalCards = 52
+    cardsPerPlayer = 13
+  } else if (playerCount === 5) {
+    // 5인: 1~15까지, 각자 12장씩 (총 60장)
+    numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    totalCards = 60
+    cardsPerPlayer = 12
+  } else {
+    // 기본값: 4인 규칙
+    numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+    totalCards = 52
+    cardsPerPlayer = 13
+  }
+  
+  const tiles = []
   for (const suit of suits) {
-    for (const rank of ranks) {
-      cards.push({ suit, rank })
+    for (const number of numbers) {
+      tiles.push({ suit, number })
     }
   }
   
-  // 카드 섞기
-  for (let i = cards.length - 1; i > 0; i--) {
+  // 타일 섞기
+  for (let i = tiles.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
-    ;[cards[i], cards[j]] = [cards[j], cards[i]]
+    ;[tiles[i], tiles[j]] = [tiles[j], tiles[i]]
   }
   
-  // 플레이어들에게 카드 분배 (CPU 포함)
+  // 플레이어들에게 타일 분배 (CPU 포함)
   const playerIds = players.value.map(p => p.id)
-  for (let i = 0; i < cards.length; i++) {
+  for (let i = 0; i < totalCards; i++) {
     const playerId = playerIds[i % playerIds.length]
-    const card = cards[i]
+    const tile = tiles[i]
     
     await supabase
       .from('lo_cards')
       .insert({
         game_id: gameId,
         owner_id: playerId,
-        suit: card.suit,
-        rank: card.rank,
+        suit: tile.suit,
+        rank: tile.number.toString(), // DB 호환성을 위해 문자열로 저장
         in_hand: true
       })
   }
+  
+  console.log(`${playerCount}인 게임: ${totalCards}장 분배 완료 (각자 ${cardsPerPlayer}장)`)
 }
 
 async function leaveRoom() {
@@ -778,6 +821,8 @@ async function retryLoad() {
 
 async function addRoomCreatorAsPlayer(creatorId) {
   try {
+    console.log('방 생성자 플레이어 추가 시작:', creatorId)
+    
     // 이미 플레이어로 추가되어 있는지 확인
     const { data: existingPlayer, error: checkError } = await supabase
       .from('lo_room_players')
@@ -803,6 +848,8 @@ async function addRoomCreatorAsPlayer(creatorId) {
       return
     }
     
+    console.log('방 생성자 프로필 로드 성공:', profile.email)
+    
     // 방 생성자를 플레이어로 추가
     const { error: insertError } = await supabase
       .from('lo_room_players')
@@ -816,6 +863,8 @@ async function addRoomCreatorAsPlayer(creatorId) {
       console.error('방 생성자 플레이어 추가 오류:', insertError)
       return
     }
+    
+    console.log('방 생성자가 DB에 성공적으로 추가되었습니다.')
     
     // 로컬 상태에 추가
     const creatorPlayer = {
@@ -831,7 +880,7 @@ async function addRoomCreatorAsPlayer(creatorId) {
     // 방의 플레이어 수 업데이트
     await updateRoomPlayerCount(players.value.length)
     
-    console.log('방 생성자가 성공적으로 플레이어로 추가되었습니다.')
+    console.log('방 생성자가 성공적으로 플레이어로 추가되었습니다. 현재 플레이어 수:', players.value.length)
     
   } catch (err) {
     console.error('방 생성자 플레이어 추가 오류:', err)
@@ -840,7 +889,7 @@ async function addRoomCreatorAsPlayer(creatorId) {
 
 async function findPlayerWithCloud3(gameId) {
   try {
-    // 구름 3을 가진 플레이어 찾기
+    // cloud 3을 가진 플레이어 찾기 (렉시오 규칙)
     const { data, error } = await supabase
       .from('lo_cards')
       .select('owner_id')
@@ -851,15 +900,15 @@ async function findPlayerWithCloud3(gameId) {
       .single()
     
     if (error || !data) {
-      console.error('구름 3을 찾을 수 없습니다:', error)
-      // 구름 3이 없으면 첫 번째 플레이어로 설정
+      console.error('cloud 3을 찾을 수 없습니다:', error)
+      // cloud 3이 없으면 첫 번째 플레이어로 설정
       return players.value[0]?.id
     }
     
     return data.owner_id
     
   } catch (err) {
-    console.error('구름 3 플레이어 찾기 오류:', err)
+    console.error('cloud 3 플레이어 찾기 오류:', err)
     // 오류 발생 시 첫 번째 플레이어로 설정
     return players.value[0]?.id
   }

@@ -105,11 +105,11 @@ async function createRoom() {
         retryCount++
       }
       
-      // 2초 후 게임 방으로 이동 (로딩 애니메이션 표시)
+      // 1초 후 게임 방으로 이동 (로딩 애니메이션 표시)
       setTimeout(() => {
-        // 현재 페이지를 새로고침하여 게임 방으로 이동
-        window.location.href = `/game/${room.id}`
-      }, 2000)
+        // 라우터를 사용하여 게임 방으로 이동
+        router.push(`/game/${room.id}`)
+      }, 1000)
       
     }
   } catch (err) {
