@@ -80,6 +80,14 @@
           <div class="text-yellow-300 text-sm">{{ startGameWarning }}</div>
         </div>
         
+        <!-- 게임 상태 디버깅 (개발용) -->
+        <div v-if="room.status === 'playing'" class="bg-blue-600 bg-opacity-20 border border-blue-600 rounded-lg p-4 mb-4">
+          <div class="text-blue-400 font-semibold mb-2">게임 상태 디버깅</div>
+          <div class="text-blue-300 text-xs">
+            <pre>{{ JSON.stringify(gameStatusDebug, null, 2) }}</pre>
+          </div>
+        </div>
+        
         <!-- 게임 컨텐츠 -->
         <div v-if="room.status === 'playing'" class="flex flex-col lg:flex-row gap-6">
           <!-- 게임 보드 -->
@@ -298,6 +306,20 @@ const hasCpuPlayers = computed(() => {
 // 게임 시작 조건을 방 설정 인원수에 맞게 수정
 const canStartGame = computed(() => {
   return players.value.length >= (room.value?.max_players || 4)
+})
+
+// 게임 상태 디버깅을 위한 computed
+const gameStatusDebug = computed(() => {
+  return {
+    roomStatus: room.value?.status,
+    gameStoreStatus: gameStore.status,
+    gameId: gameStore.gameId,
+    roomId: gameStore.roomId,
+    currentTurnUserId: gameStore.currentTurnUserId,
+    myId: gameStore.myId,
+    myHandCount: gameStore.myHand.length,
+    isMyTurn: gameStore.isMyTurn
+  }
 })
 
 // 게임 시작 조건 경고 메시지도 수정
@@ -782,12 +804,11 @@ async function startGame() {
     
     console.log('게임 생성 성공:', gameData.id)
     
-    // 게임 생성 후 추가 필드 업데이트
+    // 게임 생성 후 추가 필드 업데이트 (created_by 제외)
     if (gameData) {
       try {
         const updateData = {}
         if (initialTurnPlayer) updateData.current_turn_user_id = initialTurnPlayer
-        if (auth.user?.id) updateData.created_by = auth.user.id
         updateData.status = 'playing'
         
         if (Object.keys(updateData).length > 0) {
@@ -841,6 +862,33 @@ async function startGame() {
     } else {
       console.log('방 상태 업데이트 성공: playing')
     }
+    
+    // Pinia store에 게임 상태 설정
+    gameStore.setGameId(gameData.id)
+    gameStore.setRoomId(roomId.value)
+    gameStore.setStatus('playing')
+    gameStore.setCurrentTurnUserId(firstTurnPlayerId || initialTurnPlayer)
+    
+    console.log('게임 상태 설정 완료:', {
+      gameId: gameData.id,
+      roomId: roomId.value,
+      status: 'playing',
+      currentTurnUserId: firstTurnPlayerId || initialTurnPlayer
+    })
+    
+    // 현재 사용자의 카드 로드
+    await loadMyCards(gameData.id)
+    
+    // 내 ID 설정
+    gameStore.setMyId(auth.user?.id)
+    
+    console.log('게임 시작 완료! 현재 게임 상태:', {
+      gameStoreStatus: gameStore.status,
+      roomStatus: room.value?.status,
+      myId: gameStore.myId,
+      currentTurnUserId: gameStore.currentTurnUserId,
+      myHandCount: gameStore.myHand.length
+    })
     
   } catch (err) {
     console.error('게임 시작 오류:', err)
@@ -943,6 +991,41 @@ async function removeCpu() {
   } catch (err) {
     console.error('CPU 제거 오류:', err)
     error.value = 'CPU를 제거할 수 없습니다.'
+  }
+}
+
+async function loadMyCards(gameId) {
+  try {
+    console.log('내 카드 로드 시작:', gameId, auth.user?.id)
+    
+    const { data: cards, error } = await supabase
+      .from('lo_cards')
+      .select('*')
+      .eq('game_id', gameId)
+      .eq('owner_id', auth.user?.id)
+      .eq('in_hand', true)
+    
+    if (error) {
+      console.error('내 카드 로드 오류:', error)
+      return
+    }
+    
+    if (cards && cards.length > 0) {
+      // DB 형식을 게임 형식으로 변환
+      const myCards = cards.map(card => ({
+        suit: card.suit,
+        rank: card.rank,
+        number: parseInt(card.rank)
+      }))
+      
+      gameStore.setMyHand(myCards)
+      console.log('내 카드 로드 완료:', myCards.length, '장')
+    } else {
+      console.log('내 카드가 없습니다.')
+      gameStore.setMyHand([])
+    }
+  } catch (err) {
+    console.error('내 카드 로드 중 예외:', err)
   }
 }
 

@@ -55,6 +55,27 @@ export const useGameStore = defineStore('game', {
   },
   
   actions: {
+    // 게임 상태 설정
+    setGameId(gameId) {
+      this.gameId = gameId
+    },
+    
+    setRoomId(roomId) {
+      this.roomId = roomId
+    },
+    
+    setStatus(status) {
+      this.status = status
+    },
+    
+    setCurrentTurnUserId(userId) {
+      this.currentTurnUserId = userId
+    },
+    
+    setMyId(myId) {
+      this.myId = myId
+    },
+    
     // 카드 선택/해제
     toggleCard(cardIndex) {
       if (!this.isMyTurn || this.loading) return
