@@ -359,6 +359,7 @@ async function loadRoom() {
     
     // 방 생성자가 플레이어 목록에 없으면 자동으로 추가
     if (roomData.created_by && !players.value.find(p => p.id === roomData.created_by)) {
+      console.log('방 생성자를 플레이어로 추가합니다:', roomData.created_by)
       await addRoomCreatorAsPlayer(roomData.created_by)
     }
     
@@ -386,7 +387,7 @@ async function loadPlayers() {
     .order('joined_at', { ascending: true })
   
   if (!err && data) {
-    players.value = data.map(p => {
+    let playerList = data.map(p => {
       const isCpu = p.user_id.startsWith('cpu')
       return {
         id: p.user_id,
@@ -395,6 +396,17 @@ async function loadPlayers() {
         handCount: 0 // 게임이 시작되면 업데이트됨
       }
     })
+    
+    // 방 생성자를 첫 번째로 정렬
+    if (room.value?.created_by) {
+      const creatorIndex = playerList.findIndex(p => p.id === room.value.created_by)
+      if (creatorIndex > 0) {
+        const creator = playerList.splice(creatorIndex, 1)[0]
+        playerList.unshift(creator)
+      }
+    }
+    
+    players.value = playerList
     
     // 방의 플레이어 수 업데이트
     await updateRoomPlayerCount(data.length)
@@ -525,6 +537,12 @@ function setupRealtimeSubscriptions() {
       
       if (payload.eventType === 'INSERT') {
         // 새 실제 플레이어 추가 (CPU는 로컬에서만 관리)
+        await loadPlayers()
+        return
+      }
+      
+      if (payload.eventType === 'UPDATE') {
+        // 플레이어 정보 업데이트
         await loadPlayers()
         return
       }
@@ -760,6 +778,19 @@ async function retryLoad() {
 
 async function addRoomCreatorAsPlayer(creatorId) {
   try {
+    // 이미 플레이어로 추가되어 있는지 확인
+    const { data: existingPlayer, error: checkError } = await supabase
+      .from('lo_room_players')
+      .select('*')
+      .eq('room_id', roomId.value)
+      .eq('user_id', creatorId)
+      .single()
+    
+    if (existingPlayer && !checkError) {
+      console.log('방 생성자가 이미 플레이어로 추가되어 있습니다.')
+      return
+    }
+    
     // 방 생성자의 프로필 정보 가져오기
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -799,6 +830,8 @@ async function addRoomCreatorAsPlayer(creatorId) {
     
     // 방의 플레이어 수 업데이트
     await updateRoomPlayerCount(players.value.length)
+    
+    console.log('방 생성자가 성공적으로 플레이어로 추가되었습니다.')
     
   } catch (err) {
     console.error('방 생성자 플레이어 추가 오류:', err)
