@@ -438,13 +438,18 @@ async function loadPlayers() {
       console.log('프로필 정보를 가져올 사용자 ID들:', realUserIds)
       
       try {
+        // profiles 테이블이 없을 수 있으므로 auth.users 테이블 사용
         const { data: profilesData, error: profilesError } = await supabase
-          .from('profiles')
+          .from('auth.users')
           .select('id, email')
           .in('id', realUserIds)
         
         if (profilesError) {
           console.error('프로필 일괄 로드 오류:', profilesError)
+          // profiles 테이블이 없으면 사용자 ID를 기반으로 이름 생성
+          realUserIds.forEach(userId => {
+            profileMap[userId] = `User_${userId.slice(0, 8)}`
+          })
         } else if (profilesData) {
           profileMap = profilesData.reduce((map, profile) => {
             map[profile.id] = profile.email
@@ -453,9 +458,17 @@ async function loadPlayers() {
           console.log('로드된 프로필 정보:', profileMap)
         } else {
           console.log('프로필 데이터가 없습니다.')
+          // 데이터가 없으면 사용자 ID를 기반으로 이름 생성
+          realUserIds.forEach(userId => {
+            profileMap[userId] = `User_${userId.slice(0, 8)}`
+          })
         }
       } catch (profilesErr) {
         console.error('프로필 일괄 로드 중 예외 발생:', profilesErr)
+        // 예외 발생 시에도 사용자 ID를 기반으로 이름 생성
+        realUserIds.forEach(userId => {
+          profileMap[userId] = `User_${userId.slice(0, 8)}`
+        })
       }
     }
     
@@ -670,8 +683,16 @@ function setupRealtimeSubscriptions() {
 async function startGame() {
   if (!isRoomOwner.value || !canStartGame.value) return
   
+  // 사용자 인증 상태 확인
+  if (!auth.user?.id) {
+    console.error('사용자 인증 정보가 없습니다.')
+    error.value = '로그인이 필요합니다.'
+    return
+  }
+  
   try {
     console.log('게임 시작:', players.value.length, '명의 플레이어')
+    console.log('현재 사용자:', auth.user.id, auth.user.email)
     
     // 첫 번째 실제 플레이어 찾기 (CPU 제외)
     const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
@@ -680,19 +701,42 @@ async function startGame() {
     console.log('초기 턴 플레이어:', initialTurnPlayer)
     
     // 게임 생성
+    const gameInsertData = {
+      room_id: roomId.value,
+      status: 'playing',
+      current_turn_user_id: initialTurnPlayer,
+      created_by: auth.user?.id
+    }
+    
+    // 선택적 필드들 (테이블에 존재하는 경우에만 추가)
+    if (roomId.value) {
+      gameInsertData.room_id = roomId.value
+    }
+    
+    if (initialTurnPlayer) {
+      gameInsertData.current_turn_user_id = initialTurnPlayer
+    }
+    
+    if (auth.user?.id) {
+      gameInsertData.created_by = auth.user.id
+    }
+    
+    console.log('게임 생성 데이터:', gameInsertData)
+    
     const { data: gameData, error: gameError } = await supabase
       .from('lo_games')
-      .insert({
-        room_id: roomId.value,
-        status: 'playing',
-        current_turn_user_id: initialTurnPlayer,
-        created_by: auth.user?.id
-      })
+      .insert(gameInsertData)
       .select()
       .single()
     
     if (gameError) {
       console.error('게임 생성 오류:', gameError)
+      console.error('게임 생성 오류 상세:', {
+        code: gameError.code,
+        message: gameError.message,
+        details: gameError.details,
+        hint: gameError.hint
+      })
       throw gameError
     }
     
@@ -941,25 +985,24 @@ async function addRoomCreatorAsPlayer(creatorId) {
     }
     
     // 방 생성자의 프로필 정보 가져오기
-    let creatorEmail = 'Unknown'
+    let creatorEmail = `User_${creatorId.slice(0, 8)}`
     try {
       const { data: profile, error: profileError } = await supabase
-        .from('profiles')
+        .from('auth.users')
         .select('email')
         .eq('id', creatorId)
         .single()
       
       if (profileError) {
         console.error('방 생성자 프로필 로드 오류:', profileError)
-        // 프로필 로드 실패해도 플레이어는 추가
-        creatorEmail = `User_${creatorId.slice(0, 8)}`
+        // 프로필 로드 실패해도 플레이어는 추가 (이미 fallback 설정됨)
       } else {
         creatorEmail = profile.email || `User_${creatorId.slice(0, 8)}`
         console.log('방 생성자 프로필 로드 성공:', creatorEmail)
       }
     } catch (profileErr) {
       console.error('방 생성자 프로필 로드 중 예외 발생:', profileErr)
-      creatorEmail = `User_${creatorId.slice(0, 8)}`
+      // 예외 발생해도 fallback 이름 사용 (이미 설정됨)
     }
     
     // 방 생성자를 플레이어로 추가
