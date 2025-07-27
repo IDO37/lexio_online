@@ -67,6 +67,7 @@ async function createRoom() {
     }).select()
     
     if (error) {
+      console.error('방 생성 오류:', error)
       alert('방 생성 실패: ' + error.message)
       creating.value = false
       return
@@ -90,7 +91,9 @@ async function createRoom() {
       
       // 방 정보가 확실히 반영되었는지 확인
       let retryCount = 0
-      while (retryCount < 5) {
+      let roomConfirmed = false
+      
+      while (retryCount < 10 && !roomConfirmed) {
         const { data: confirmData, error: confirmError } = await supabase
           .from('lo_rooms')
           .select('*')
@@ -98,18 +101,60 @@ async function createRoom() {
           .single()
         
         if (confirmData && !confirmError) {
+          console.log('방 생성 확인됨:', confirmData.id)
+          roomConfirmed = true
           break
         }
         
-        await new Promise(resolve => setTimeout(resolve, 200))
+        console.log(`방 생성 확인 재시도 ${retryCount + 1}/10`)
+        await new Promise(resolve => setTimeout(resolve, 300))
         retryCount++
       }
       
-      // 1초 후 게임 방으로 이동 (로딩 애니메이션 표시)
+      if (!roomConfirmed) {
+        console.error('방 생성 확인 실패')
+        alert('방 생성에 실패했습니다. 다시 시도해주세요.')
+        creating.value = false
+        return
+      }
+      
+      // 플레이어 추가도 확인
+      let playerConfirmed = false
+      retryCount = 0
+      
+      while (retryCount < 10 && !playerConfirmed) {
+        const { data: playerData, error: playerError } = await supabase
+          .from('lo_room_players')
+          .select('*')
+          .eq('room_id', room.id)
+          .eq('user_id', auth.user.id)
+          .single()
+        
+        if (playerData && !playerError) {
+          console.log('플레이어 추가 확인됨:', playerData.user_id)
+          playerConfirmed = true
+          break
+        }
+        
+        console.log(`플레이어 추가 확인 재시도 ${retryCount + 1}/10`)
+        await new Promise(resolve => setTimeout(resolve, 300))
+        retryCount++
+      }
+      
+      if (!playerConfirmed) {
+        console.error('플레이어 추가 확인 실패')
+        alert('플레이어 추가에 실패했습니다. 다시 시도해주세요.')
+        creating.value = false
+        return
+      }
+      
+      console.log('방 생성 및 플레이어 추가 완료, 게임 방으로 이동합니다.')
+      
+      // 2초 후 게임 방으로 이동 (로딩 애니메이션 표시)
       setTimeout(() => {
         // 라우터를 사용하여 게임 방으로 이동
         router.push(`/game/${room.id}`)
-      }, 1000)
+      }, 2000)
       
     }
   } catch (err) {

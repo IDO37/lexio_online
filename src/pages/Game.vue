@@ -324,8 +324,9 @@ onMounted(async () => {
     await loadRoom()
     // 방 로드 완료 후 실시간 구독 설정
     setTimeout(() => {
+      console.log('실시간 구독 설정 시작')
       setupRealtimeSubscriptions()
-    }, 500)
+    }, 1000)
   }
 })
 
@@ -343,14 +344,35 @@ async function loadRoom() {
   error.value = ''
   
   try {
-    // 방 정보 로드
-    const { data: roomData, error: roomError } = await supabase
-      .from('lo_rooms')
-      .select('*')
-      .eq('id', roomId.value)
-      .single()
+    console.log('방 로드 시작:', roomId.value)
+    
+    // 방 정보 로드 (재시도 로직 포함)
+    let roomData = null
+    let roomError = null
+    let retryCount = 0
+    
+    while (retryCount < 5) {
+      const { data, error } = await supabase
+        .from('lo_rooms')
+        .select('*')
+        .eq('id', roomId.value)
+        .single()
+      
+      if (data && !error) {
+        roomData = data
+        roomError = null
+        console.log('방 정보 로드 성공:', roomData.id)
+        break
+      }
+      
+      roomError = error
+      console.log(`방 정보 로드 재시도 ${retryCount + 1}/5:`, error?.message)
+      await new Promise(resolve => setTimeout(resolve, 500))
+      retryCount++
+    }
     
     if (roomError || !roomData) {
+      console.error('방을 찾을 수 없습니다:', roomError)
       error.value = '방을 찾을 수 없습니다.'
       return
     }
@@ -372,6 +394,8 @@ async function loadRoom() {
     if (roomData.status === 'playing') {
       await loadGameData()
     }
+    
+    console.log('방 로드 완료')
     
   } catch (err) {
     console.error('방 로드 오류:', err)
