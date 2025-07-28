@@ -106,14 +106,7 @@ export const useGameStore = defineStore('game', {
           return
         }
         
-        // 첫 턴인 경우 cloud 3을 플레이해야 함 (렉시오 규칙)
-        if (!this.lastPlayedCombo) {
-          const hasCloud3 = selectedCards.some(card => card.suit === 'cloud' && card.rank === '3')
-          if (!hasCloud3) {
-            this.error = '첫 턴에는 cloud 3을 플레이해야 합니다.'
-            return
-          }
-        }
+        // 첫 턴 검증 제거 - cloud 3을 가진 플레이어가 첫 턴을 가지지만, 어떤 카드든 플레이 가능
         
         // 카드를 게임 보드에 제출
         await this.submitCardsToBoard(selectedCards, combo)
@@ -196,7 +189,7 @@ export const useGameStore = defineStore('game', {
     removeCardsFromHand(cards) {
       const cardIds = cards.map(c => `${c.suit}-${c.rank}`)
       this.myHand = this.myHand.filter(card => 
-        !cardIds.includes(`${card.suit}-${c.rank}`)
+        !cardIds.includes(`${card.suit}-${card.rank}`)
       )
     },
     
@@ -208,14 +201,9 @@ export const useGameStore = defineStore('game', {
       const nextIndex = (currentIndex + 1) % this.players.length
       const nextPlayerId = this.players[nextIndex].id
       
-      const { error } = await supabase
-        .from('lo_games')
-        .update({ current_turn_user_id: nextPlayerId })
-        .eq('id', this.gameId)
-      
-      if (error) throw error
-      
+      // DB 업데이트 없이 로컬에서만 턴 관리 (current_turn_user_id 컬럼이 없으므로)
       this.currentTurnUserId = nextPlayerId
+      
       // CPU 턴이면 자동 플레이
       if (isCpuPlayer(nextPlayerId)) {
         setTimeout(() => {
@@ -266,16 +254,7 @@ export const useGameStore = defineStore('game', {
         return
       }
       
-              // 첫 턴인 경우 cloud 3을 우선적으로 플레이 (렉시오 규칙)
-        if (!this.lastPlayedCombo) {
-          const cloud3 = hand.find(card => card.suit === 'cloud' && card.rank === '3')
-          if (cloud3) {
-            await this.submitCardsToBoard([cloud3], getCombo([cloud3]))
-            await this.removeCpuCardsFromHand(cpuId, [cloud3])
-            await this.nextTurn()
-            return
-          }
-        }
+              // 첫 턴 검증 제거 - cloud 3을 가진 플레이어가 첫 턴을 가지지만, 어떤 카드든 플레이 가능
       
       // 가능한 조합 찾기 (싱글, 페어, 트리플, ...)
       let playCards = null

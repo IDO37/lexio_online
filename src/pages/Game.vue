@@ -985,9 +985,22 @@ async function loadMyCards(gameId) {
         number: parseInt(card.rank)
       }))
       
-      gameStore.setMyHand(myCards)
-      console.log('내 카드 로드 완료:', myCards.length, '장')
-      console.log('내 카드 목록:', myCards.map(c => `${c.suit} ${c.rank}`))
+      // 카드를 약한 순서부터 강한 순서로 정렬
+      const sortedCards = myCards.sort((a, b) => {
+        // 먼저 숫자로 정렬 (3이 가장 낮음, 2가 가장 높음)
+        const aNumber = parseInt(a.rank)
+        const bNumber = parseInt(b.rank)
+        if (aNumber !== bNumber) {
+          return aNumber - bNumber
+        }
+        // 숫자가 같으면 문양으로 정렬 (cloud < star < moon < sun)
+        const suitOrder = { cloud: 1, star: 2, moon: 3, sun: 4 }
+        return suitOrder[a.suit] - suitOrder[b.suit]
+      })
+      
+      gameStore.setMyHand(sortedCards)
+      console.log('내 카드 로드 완료:', sortedCards.length, '장')
+      console.log('내 카드 목록 (정렬됨):', sortedCards.map(c => `${c.suit} ${c.rank}`))
     } else {
       console.log('내 카드가 없습니다.')
       gameStore.setMyHand([])
@@ -1039,34 +1052,50 @@ async function distributeCards(gameId) {
     ;[tiles[i], tiles[j]] = [tiles[j], tiles[i]]
   }
   
-  // 플레이어들에게 타일 분배 (실제 사용자만 DB에 저장)
+  // 모든 플레이어에게 카드 분배
+  const allPlayerIds = players.value.map(p => p.id)
   const realPlayerIds = players.value.filter(p => !p.id.startsWith('cpu')).map(p => p.id)
   const cpuPlayers = players.value.filter(p => p.id.startsWith('cpu'))
   
-  // 실제 사용자들에게만 카드 분배 (DB에 저장)
+  // 실제 사용자들에게 카드 분배 (DB에 저장)
   console.log('실제 플레이어들에게 카드 분배 시작:', realPlayerIds)
   
   for (let i = 0; i < totalCards; i++) {
-    const playerIndex = i % realPlayerIds.length
-    const playerId = realPlayerIds[playerIndex]
+    const playerIndex = i % allPlayerIds.length
+    const playerId = allPlayerIds[playerIndex]
     const tile = tiles[i]
     
     console.log(`카드 ${i + 1}/${totalCards}: ${tile.suit} ${tile.number} -> ${playerId}`)
     
-    await supabase
-      .from('lo_cards')
-      .insert({
-        game_id: gameId,
-        owner_id: playerId,
-        suit: tile.suit,
-        rank: tile.number.toString(), // DB 호환성을 위해 문자열로 저장
-        in_hand: true
-      })
+    // 실제 사용자만 DB에 저장
+    if (!playerId.startsWith('cpu')) {
+      await supabase
+        .from('lo_cards')
+        .insert({
+          game_id: gameId,
+          owner_id: playerId,
+          suit: tile.suit,
+          rank: tile.number.toString(), // DB 호환성을 위해 문자열로 저장
+          in_hand: true
+        })
+    }
   }
   
-  // CPU 플레이어들의 카드는 로컬에서만 관리 (DB에 저장하지 않음)
+  // CPU 플레이어들의 카드는 로컬에서만 관리
   if (cpuPlayers.length > 0) {
     console.log('CPU 플레이어 카드는 로컬에서 관리됩니다:', cpuPlayers.map(p => p.id))
+    // CPU 플레이어들의 카드를 로컬에 저장
+    cpuPlayers.forEach(cpuPlayer => {
+      const cpuCards = []
+      for (let i = 0; i < totalCards; i++) {
+        const playerIndex = i % allPlayerIds.length
+        if (allPlayerIds[playerIndex] === cpuPlayer.id) {
+          cpuCards.push(tiles[i])
+        }
+      }
+      // CPU 카드를 로컬 상태에 저장 (나중에 사용)
+      console.log(`CPU ${cpuPlayer.id} 카드:`, cpuCards.map(c => `${c.suit} ${c.number}`))
+    })
   }
   
   console.log(`${playerCount}인 게임: ${totalCards}장 분배 완료 (각자 ${cardsPerPlayer}장)`)

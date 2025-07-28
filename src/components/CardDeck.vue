@@ -74,7 +74,7 @@
     
     <!-- 첫 턴 안내 -->
     <div v-if="isMyTurn && isFirstTurn" class="text-center text-highlight-red text-sm font-bold bg-highlight-red bg-opacity-20 rounded-lg p-2 mb-2">
-      첫 턴입니다! ☁️ 3을 플레이하세요.
+      첫 턴입니다! 원하는 카드를 플레이하세요.
     </div>
     
     <!-- 오류 메시지 -->
