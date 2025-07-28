@@ -776,12 +776,13 @@ async function startGame() {
     
     console.log('게임 생성 성공:', gameData.id)
     
-    // 게임 생성 후 추가 필드 업데이트 (created_by 제외)
+    // 게임 생성 후 추가 필드 업데이트 (lo_games 테이블 스키마에 맞게)
     if (gameData) {
       try {
         const updateData = {}
-        if (initialTurnPlayer) updateData.current_turn_user_id = initialTurnPlayer
-        updateData.status = 'playing'
+        // current_turn_user_id 컬럼이 없으므로 제거
+        // status는 이미 설정되어 있으므로 제거
+        updateData.started_at = new Date().toISOString()
         
         if (Object.keys(updateData).length > 0) {
           console.log('게임 추가 필드 업데이트:', updateData)
@@ -809,18 +810,10 @@ async function startGame() {
     
     console.log('cloud 3을 가진 플레이어:', firstTurnPlayerId)
     
-    // 첫 턴 플레이어로 업데이트
+    // 첫 턴 플레이어 설정 (DB 업데이트 없이 로컬에서만)
     if (firstTurnPlayerId && firstTurnPlayerId !== initialTurnPlayer) {
-      const { error: updateError } = await supabase
-        .from('lo_games')
-        .update({ current_turn_user_id: firstTurnPlayerId })
-        .eq('id', gameData.id)
-      
-      if (updateError) {
-        console.error('첫 턴 플레이어 업데이트 오류:', updateError)
-      } else {
-        console.log('첫 턴 플레이어 업데이트 성공:', firstTurnPlayerId)
-      }
+      console.log('첫 턴 플레이어 변경:', initialTurnPlayer, '->', firstTurnPlayerId)
+      initialTurnPlayer = firstTurnPlayerId
     }
     
     // 방 상태 업데이트
@@ -833,6 +826,8 @@ async function startGame() {
       console.error('방 상태 업데이트 오류:', roomUpdateError)
     } else {
       console.log('방 상태 업데이트 성공: playing')
+      // 로컬 상태도 업데이트
+      room.value.status = 'playing'
     }
     
     // Pinia store에 게임 상태 설정
@@ -992,6 +987,7 @@ async function loadMyCards(gameId) {
       
       gameStore.setMyHand(myCards)
       console.log('내 카드 로드 완료:', myCards.length, '장')
+      console.log('내 카드 목록:', myCards.map(c => `${c.suit} ${c.rank}`))
     } else {
       console.log('내 카드가 없습니다.')
       gameStore.setMyHand([])
@@ -1048,9 +1044,14 @@ async function distributeCards(gameId) {
   const cpuPlayers = players.value.filter(p => p.id.startsWith('cpu'))
   
   // 실제 사용자들에게만 카드 분배 (DB에 저장)
+  console.log('실제 플레이어들에게 카드 분배 시작:', realPlayerIds)
+  
   for (let i = 0; i < totalCards; i++) {
-    const playerId = realPlayerIds[i % realPlayerIds.length]
+    const playerIndex = i % realPlayerIds.length
+    const playerId = realPlayerIds[playerIndex]
     const tile = tiles[i]
+    
+    console.log(`카드 ${i + 1}/${totalCards}: ${tile.suit} ${tile.number} -> ${playerId}`)
     
     await supabase
       .from('lo_cards')
