@@ -1052,23 +1052,45 @@ async function distributeCards(gameId) {
     ;[tiles[i], tiles[j]] = [tiles[j], tiles[i]]
   }
   
-  // 모든 플레이어에게 카드 분배
+  // 모든 플레이어에게 카드 분배 (완전 랜덤)
   const allPlayerIds = players.value.map(p => p.id)
   const realPlayerIds = players.value.filter(p => !p.id.startsWith('cpu')).map(p => p.id)
   const cpuPlayers = players.value.filter(p => p.id.startsWith('cpu'))
   
-  // 실제 사용자들에게 카드 분배 (DB에 저장)
-  console.log('실제 플레이어들에게 카드 분배 시작:', realPlayerIds)
+  // 각 플레이어별로 카드 분배 (완전 랜덤)
+  console.log('플레이어들에게 카드 분배 시작 (완전 랜덤):', allPlayerIds)
   
+  // 각 플레이어별로 카드 인덱스 할당
+  const playerCardIndices = {}
+  allPlayerIds.forEach(playerId => {
+    playerCardIndices[playerId] = []
+  })
+  
+  // 카드 인덱스를 플레이어별로 랜덤하게 분배
   for (let i = 0; i < totalCards; i++) {
     const playerIndex = i % allPlayerIds.length
     const playerId = allPlayerIds[playerIndex]
-    const tile = tiles[i]
+    playerCardIndices[playerId].push(i)
+  }
+  
+  // 각 플레이어의 카드 인덱스를 섞기
+  Object.keys(playerCardIndices).forEach(playerId => {
+    const indices = playerCardIndices[playerId]
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[indices[i], indices[j]] = [indices[j], indices[i]]
+    }
+  })
+  
+  // 실제 사용자들에게 카드 분배 (DB에 저장)
+  for (const playerId of realPlayerIds) {
+    const cardIndices = playerCardIndices[playerId]
+    console.log(`플레이어 ${playerId} 카드 분배:`, cardIndices.length, '장')
     
-    console.log(`카드 ${i + 1}/${totalCards}: ${tile.suit} ${tile.number} -> ${playerId}`)
-    
-    // 실제 사용자만 DB에 저장
-    if (!playerId.startsWith('cpu')) {
+    for (const cardIndex of cardIndices) {
+      const tile = tiles[cardIndex]
+      console.log(`  ${tile.suit} ${tile.number} -> ${playerId}`)
+      
       await supabase
         .from('lo_cards')
         .insert({
@@ -1086,14 +1108,10 @@ async function distributeCards(gameId) {
     console.log('CPU 플레이어 카드는 로컬에서 관리됩니다:', cpuPlayers.map(p => p.id))
     // CPU 플레이어들의 카드를 로컬에 저장
     cpuPlayers.forEach(cpuPlayer => {
-      const cpuCards = []
-      for (let i = 0; i < totalCards; i++) {
-        const playerIndex = i % allPlayerIds.length
-        if (allPlayerIds[playerIndex] === cpuPlayer.id) {
-          cpuCards.push(tiles[i])
-        }
-      }
-      // CPU 카드를 로컬 상태에 저장 (나중에 사용)
+      const cardIndices = playerCardIndices[cpuPlayer.id]
+      const cpuCards = cardIndices.map(index => tiles[index])
+      // CPU 카드를 게임 store에 저장
+      gameStore.setCpuHand(cpuPlayer.id, cpuCards)
       console.log(`CPU ${cpuPlayer.id} 카드:`, cpuCards.map(c => `${c.suit} ${c.number}`))
     })
   }
@@ -1214,24 +1232,27 @@ async function findPlayerWithCloud3(gameId) {
       .eq('suit', 'cloud')
       .eq('rank', '3')
       .eq('in_hand', true)
-      .single()
     
-    if (error || !data) {
-      console.error('cloud 3을 찾을 수 없습니다:', error)
+    if (error) {
+      console.error('cloud 3 검색 오류:', error)
+      // 오류 발생 시 첫 번째 실제 플레이어로 설정
+      const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
+      return firstRealPlayer?.id || players.value[0]?.id
+    }
+    
+    if (!data || data.length === 0) {
+      console.log('cloud 3을 가진 플레이어가 없습니다.')
       // cloud 3이 없으면 첫 번째 실제 플레이어로 설정
       const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
       return firstRealPlayer?.id || players.value[0]?.id
     }
     
-    // 찾은 플레이어가 실제 사용자인지 확인
-    const isRealPlayer = !data.owner_id.startsWith('cpu')
-    if (!isRealPlayer) {
-      console.log('cloud 3을 가진 플레이어가 CPU입니다. 첫 번째 실제 플레이어로 설정합니다.')
-      const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
-      return firstRealPlayer?.id || players.value[0]?.id
-    }
+    // 첫 번째 결과 사용 (single() 대신 배열의 첫 번째 요소)
+    const ownerId = data[0].owner_id
     
-    return data.owner_id
+    // cloud 3을 가진 플레이어가 누구든 그 플레이어가 첫 턴을 가짐 (렉시오 규칙)
+    console.log('cloud 3을 가진 플레이어:', ownerId, '이(가) 첫 턴을 가집니다.')
+    return ownerId
     
   } catch (err) {
     console.error('cloud 3 플레이어 찾기 오류:', err)

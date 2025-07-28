@@ -21,6 +21,9 @@ export const useGameStore = defineStore('game', {
     myHand: [],
     myId: null,
     
+    // CPU 플레이어 카드 (로컬에서 관리)
+    cpuHands: {}, // { cpuId: [cards] }
+    
     // UI 상태
     selectedCards: [],
     loading: false,
@@ -74,6 +77,11 @@ export const useGameStore = defineStore('game', {
     
     setMyId(myId) {
       this.myId = myId
+    },
+    
+    // CPU 플레이어 카드 설정
+    setCpuHand(cpuId, cards) {
+      this.cpuHands[cpuId] = cards
     },
     
     // 카드 선택/해제
@@ -135,18 +143,25 @@ export const useGameStore = defineStore('game', {
       try {
         // 패스 기록
         if (this.gameId && this.myId) {
-          const { error } = await supabase
-            .from('lo_game_turns')
-            .insert({
-              game_id: this.gameId,
-              player_id: this.myId,
-              action: 'pass',
-              cards: [],
-              combo_type: null,
-              combo_value: null
-            })
+          const passData = {
+            game_id: this.gameId,
+            player_id: this.myId,
+            action: 'pass',
+            cards: []
+          }
           
-          if (error) throw error
+          try {
+            const { error } = await supabase
+              .from('lo_game_turns')
+              .insert(passData)
+            
+            if (error) {
+              console.error('패스 데이터 삽입 오류:', error)
+              // 오류가 발생해도 게임은 계속 진행
+            }
+          } catch (err) {
+            console.error('패스 데이터 삽입 중 예외:', err)
+          }
         }
         
         await this.nextTurn()
@@ -166,18 +181,27 @@ export const useGameStore = defineStore('game', {
         throw new Error('게임 ID 또는 사용자 ID가 없습니다.')
       }
       
-      const { error } = await supabase
-        .from('lo_game_turns')
-        .insert({
-          game_id: this.gameId,
-          player_id: this.myId,
-          action: 'play',
-          cards: cards,
-          combo_type: combo.type,
-          combo_value: getComboValue(combo)
-        })
+      // lo_game_turns 테이블 스키마에 맞게 수정
+      const turnData = {
+        game_id: this.gameId,
+        player_id: this.myId,
+        action: 'play',
+        cards: cards
+      }
       
-      if (error) throw error
+      // 선택적 필드들 (테이블에 존재하는 경우에만 추가)
+      try {
+        const { error } = await supabase
+          .from('lo_game_turns')
+          .insert(turnData)
+        
+        if (error) {
+          console.error('턴 데이터 삽입 오류:', error)
+          // 오류가 발생해도 로컬 상태는 업데이트
+        }
+      } catch (err) {
+        console.error('턴 데이터 삽입 중 예외:', err)
+      }
       
       // 로컬 상태 업데이트
       this.lastPlayedCards = cards
@@ -242,65 +266,98 @@ export const useGameStore = defineStore('game', {
       this.lastPlayedPlayerId = turnData.player_id
     },
     async cpuPlay(cpuId) {
-      // CPU의 패 불러오기
-      const { data: hand } = await supabase
-        .from('lo_cards')
-        .select('*')
-        .eq('game_id', this.gameId)
-        .eq('owner_id', cpuId)
-        .eq('in_hand', true)
+      console.log('CPU 플레이어 턴:', cpuId)
+      
+      // CPU의 패 가져오기 (로컬에서 관리)
+      const hand = this.cpuHands[cpuId] || []
       if (!hand || hand.length === 0) {
+        console.log('CPU 패가 없습니다. 패스합니다.')
         await this.cpuPass(cpuId)
         return
       }
       
-              // 첫 턴 검증 제거 - cloud 3을 가진 플레이어가 첫 턴을 가지지만, 어떤 카드든 플레이 가능
+      console.log('CPU 패:', hand.map(c => `${c.suit} ${c.rank}`))
       
-      // 가능한 조합 찾기 (싱글, 페어, 트리플, ...)
-      let playCards = null
-      for (let n = 1; n <= Math.min(5, hand.length); n++) {
-        // n장 조합 중 유효한 것
+      // 가능한 모든 조합 찾기 (카드 수가 많은 것 우선)
+      let bestPlay = null
+      let bestCombo = null
+      
+      // 5장부터 1장까지 역순으로 검색 (많은 카드 우선)
+      for (let n = Math.min(5, hand.length); n >= 1; n--) {
         const combs = getCombinations(hand, n)
+        let foundValidCombo = false
+        
         for (const comb of combs) {
           const combo = getCombo(comb)
           if (!combo) continue
-          // 현재 보드보다 높은 조합만 제출
-          if (!this.lastPlayedCombo || combo.type === this.lastPlayedCombo.type && getComboValue(combo) > getComboValue(this.lastPlayedCombo) || getComboRank(combo.type) > getComboRank(this.lastPlayedCombo?.type)) {
-            playCards = comb
-            break
+          
+          // 현재 보드보다 높은 조합인지 확인
+          const isValidPlay = !this.lastPlayedCombo || 
+            (combo.type === this.lastPlayedCombo.type && getComboValue(combo) > getComboValue(this.lastPlayedCombo)) || 
+            getComboRank(combo.type) > getComboRank(this.lastPlayedCombo?.type)
+          
+          if (isValidPlay) {
+            // 같은 카드 수에서 가장 낮은 조합 선택
+            if (!bestPlay || 
+                (bestPlay.length === comb.length && getComboValue(combo) < getComboValue(bestCombo))) {
+              bestPlay = comb
+              bestCombo = combo
+            }
+            foundValidCombo = true
           }
         }
-        if (playCards) break
+        
+        // 이 카드 수에서 유효한 조합을 찾았다면, 더 적은 카드 수는 검색하지 않음
+        if (foundValidCombo) {
+          break
+        }
       }
-      if (playCards) {
+      
+      if (bestPlay) {
+        console.log(`CPU가 ${bestPlay.length}장의 카드를 플레이합니다:`, bestPlay.map(c => `${c.suit} ${c.rank}`))
+        console.log('조합 타입:', bestCombo.type, '값:', getComboValue(bestCombo))
         // 제출
-        await this.submitCardsToBoard(playCards, getCombo(playCards))
-        await this.removeCpuCardsFromHand(cpuId, playCards)
+        await this.submitCardsToBoard(bestPlay, bestCombo)
+        this.removeCpuCardsFromHand(cpuId, bestPlay)
         await this.nextTurn()
       } else {
+        console.log('CPU가 패스합니다.')
         // 패스
         await this.cpuPass(cpuId)
       }
     },
     async cpuPass(cpuId) {
-      await supabase.from('lo_game_turns').insert({
+      const passData = {
         game_id: this.gameId,
         player_id: cpuId,
         action: 'pass',
-        cards: [],
-        combo_type: null,
-        combo_value: null
-      })
+        cards: []
+      }
+      
+      try {
+        const { error } = await supabase
+          .from('lo_game_turns')
+          .insert(passData)
+        
+        if (error) {
+          console.error('CPU 패스 데이터 삽입 오류:', error)
+        }
+      } catch (err) {
+        console.error('CPU 패스 데이터 삽입 중 예외:', err)
+      }
+      
       await this.nextTurn()
     },
-    async removeCpuCardsFromHand(cpuId, cards) {
-      for (const card of cards) {
-        await supabase.from('lo_cards').update({ in_hand: false })
-          .eq('game_id', card.game_id)
-          .eq('owner_id', cpuId)
-          .eq('suit', card.suit)
-          .eq('rank', card.rank)
-      }
+    removeCpuCardsFromHand(cpuId, cards) {
+      // CPU 카드는 로컬에서만 관리
+      const currentHand = this.cpuHands[cpuId] || []
+      const cardIds = cards.map(c => `${c.suit}-${c.rank}`)
+      
+      this.cpuHands[cpuId] = currentHand.filter(card => 
+        !cardIds.includes(`${card.suit}-${card.rank}`)
+      )
+      
+      console.log(`CPU ${cpuId} 카드 제거 후:`, this.cpuHands[cpuId].map(c => `${c.suit} ${c.rank}`))
     }
   }
 })
