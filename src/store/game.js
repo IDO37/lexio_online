@@ -27,7 +27,8 @@ export const useGameStore = defineStore('game', {
     // UI 상태
     selectedCards: [],
     loading: false,
-    error: null
+    error: null,
+    turnTransitioning: false, // 턴 전환 애니메이션 상태
   }),
   
   getters: {
@@ -122,8 +123,12 @@ export const useGameStore = defineStore('game', {
         // 내 패에서 카드 제거
         this.removeCardsFromHand(selectedCards)
         
-        // 턴 넘기기
-        await this.nextTurn()
+        // 턴 전환 애니메이션
+        this.turnTransitioning = true
+        setTimeout(async () => {
+          await this.nextTurn()
+          this.turnTransitioning = false
+        }, 1000)
         
         this.selectedCards = []
         this.error = null
@@ -178,7 +183,12 @@ export const useGameStore = defineStore('game', {
           }
         }
         
-        await this.nextTurn()
+        // 턴 전환 애니메이션
+        this.turnTransitioning = true
+        setTimeout(async () => {
+          await this.nextTurn()
+          this.turnTransitioning = false
+        }, 1000)
         this.selectedCards = []
         this.error = null
       } catch (error) {
@@ -380,7 +390,12 @@ export const useGameStore = defineStore('game', {
         console.error('CPU 패스 데이터 삽입 중 예외:', err)
       }
       
-      await this.nextTurn()
+      // 턴 전환 애니메이션
+      this.turnTransitioning = true
+      setTimeout(async () => {
+        await this.nextTurn()
+        this.turnTransitioning = false
+      }, 1000)
     },
     removeCpuCardsFromHand(cpuId, cards) {
       // CPU 카드는 로컬에서만 관리
