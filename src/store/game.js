@@ -146,12 +146,12 @@ export const useGameStore = defineStore('game', {
           // 현재 턴 넘버 계산 (DB에서 턴 개수 조회)
           let turnNumber = 1
           try {
-            const { data: turnRows, error: turnCountError } = await supabase
+            const { count, error: turnCountError } = await supabase
               .from('lo_game_turns')
-              .select('id', { count: 'exact', head: true })
+              .select('', { count: 'exact', head: true })
               .eq('game_id', this.gameId)
-            if (!turnCountError && typeof turnRows?.count === 'number') {
-              turnNumber = turnRows.count + 1
+            if (!turnCountError && typeof count === 'number') {
+              turnNumber = count + 1
             }
           } catch (e) {
             console.error('턴 넘버 계산 오류:', e)
@@ -197,12 +197,12 @@ export const useGameStore = defineStore('game', {
       // 현재 턴 넘버 계산 (DB에서 턴 개수 조회)
       let turnNumber = 1
       try {
-        const { data: turnRows, error: turnCountError } = await supabase
+        const { count, error: turnCountError } = await supabase
           .from('lo_game_turns')
-          .select('id', { count: 'exact', head: true })
+          .select('', { count: 'exact', head: true })
           .eq('game_id', this.gameId)
-        if (!turnCountError && typeof turnRows?.count === 'number') {
-          turnNumber = turnRows.count + 1
+        if (!turnCountError && typeof count === 'number') {
+          turnNumber = count + 1
         }
       } catch (e) {
         console.error('턴 넘버 계산 오류:', e)
@@ -352,12 +352,12 @@ export const useGameStore = defineStore('game', {
       // 현재 턴 넘버 계산 (DB에서 턴 개수 조회)
       let turnNumber = 1
       try {
-        const { data: turnRows, error: turnCountError } = await supabase
+        const { count, error: turnCountError } = await supabase
           .from('lo_game_turns')
-          .select('id', { count: 'exact', head: true })
+          .select('', { count: 'exact', head: true })
           .eq('game_id', this.gameId)
-        if (!turnCountError && typeof turnRows?.count === 'number') {
-          turnNumber = turnRows.count + 1
+        if (!turnCountError && typeof count === 'number') {
+          turnNumber = count + 1
         }
       } catch (e) {
         console.error('턴 넘버 계산 오류:', e)
