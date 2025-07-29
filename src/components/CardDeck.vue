@@ -15,11 +15,11 @@
           selectedCards.includes(idx) 
             ? 'border-highlight-red ring-2 ring-highlight-red ring-opacity-50 transform scale-105' 
             : 'border-gray-300 hover:border-highlight-red hover:scale-105',
-          !isMyTurn || loading ? 'opacity-50 cursor-not-allowed' : ''
+          !canInteract ? 'opacity-50 cursor-not-allowed' : ''
         ]"
         @click="toggleCard(idx)"
-        :aria-disabled="!isMyTurn || loading"
-        :tabindex="isMyTurn && !loading ? 0 : -1"
+        :aria-disabled="!canInteract"
+        :tabindex="canInteract ? 0 : -1"
       >
         <span>{{ cardDisplay(card) }}</span>
       </div>
@@ -49,7 +49,7 @@
     <div class="flex gap-2 mt-2">
       <button
         class="flex-1 bg-highlight-red text-white font-bold rounded-lg px-4 py-3 shadow-md transition hover:bg-highlight-red-dark disabled:opacity-50 disabled:cursor-not-allowed"
-        :disabled="!canPlay || loading"
+        :disabled="!canPlay || !canInteract"
         @click="playCards"
       >
         <span v-if="loading">제출 중...</span>
@@ -60,7 +60,7 @@
       
       <button
         class="bg-lexio-bg text-lexio-text font-bold rounded-lg px-4 py-3 border border-gray-600 transition hover:bg-lexio-bg-lighter disabled:opacity-50 disabled:cursor-not-allowed"
-        :disabled="!isMyTurn || loading"
+        :disabled="!canInteract"
         @click="pass"
       >
         패스
@@ -93,7 +93,8 @@ const props = defineProps({
   myHand: { type: Array, required: true },
   isMyTurn: { type: Boolean, required: true },
   currentPlayerName: { type: String, default: '' },
-  isFirstTurn: { type: Boolean, default: false }
+  isFirstTurn: { type: Boolean, default: false },
+  turnTransitioning: { type: Boolean, default: false }
 })
 
 const gameStore = useGameStore()
@@ -121,6 +122,9 @@ const loading = computed(() => gameStore.loading)
 // 오류 메시지
 const error = computed(() => gameStore.error)
 
+// 카드 클릭 가능 여부
+const canInteract = computed(() => props.isMyTurn && !props.turnTransitioning && !loading.value)
+
 function cardDisplay(card) {
   const suitMap = { 
     'sun': '☀️', 
@@ -131,18 +135,22 @@ function cardDisplay(card) {
   return `${suitMap[card.suit] || card.suit} ${card.rank}`
 }
 
-function toggleCard(cardIndex) {
-  if (!props.isMyTurn || loading.value) return
-  gameStore.toggleCard(cardIndex)
+function toggleCard(idx) {
+  if (!canInteract.value) return
+  if (selectedCards.value.includes(idx)) {
+    selectedCards.value = selectedCards.value.filter(i => i !== idx)
+  } else {
+    selectedCards.value.push(idx)
+  }
 }
 
 async function playCards() {
-  if (!canPlay.value || loading.value) return
+  if (!canPlay.value || !canInteract.value) return
   await gameStore.playCards()
 }
 
 async function pass() {
-  if (!props.isMyTurn || loading.value) return
+  if (!canInteract.value) return
   await gameStore.pass()
 }
 

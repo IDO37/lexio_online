@@ -116,6 +116,7 @@
               :isMyTurn="gameStore.isMyTurn"
               :currentPlayerName="gameStore.currentPlayer?.name || ''"
               :isFirstTurn="!gameStore.lastPlayedCombo"
+              :turnTransitioning="gameStore.turnTransitioning"
             />
           </div>
         </div>
