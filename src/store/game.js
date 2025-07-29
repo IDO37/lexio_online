@@ -143,11 +143,25 @@ export const useGameStore = defineStore('game', {
       try {
         // 패스 기록
         if (this.gameId && this.myId) {
+          // 현재 턴 넘버 계산 (DB에서 턴 개수 조회)
+          let turnNumber = 1
+          try {
+            const { data: turnRows, error: turnCountError } = await supabase
+              .from('lo_game_turns')
+              .select('id', { count: 'exact', head: true })
+              .eq('game_id', this.gameId)
+            if (!turnCountError && typeof turnRows?.count === 'number') {
+              turnNumber = turnRows.count + 1
+            }
+          } catch (e) {
+            console.error('턴 넘버 계산 오류:', e)
+          }
           const passData = {
             game_id: this.gameId,
             player_id: this.myId,
             action: 'pass',
-            cards: []
+            cards: [],
+            turn_number: turnNumber
           }
           
           try {
@@ -180,24 +194,32 @@ export const useGameStore = defineStore('game', {
       if (!this.gameId || !this.myId) {
         throw new Error('게임 ID 또는 사용자 ID가 없습니다.')
       }
-      
-      // lo_game_turns 테이블 스키마에 맞게 수정
+      // 현재 턴 넘버 계산 (DB에서 턴 개수 조회)
+      let turnNumber = 1
+      try {
+        const { data: turnRows, error: turnCountError } = await supabase
+          .from('lo_game_turns')
+          .select('id', { count: 'exact', head: true })
+          .eq('game_id', this.gameId)
+        if (!turnCountError && typeof turnRows?.count === 'number') {
+          turnNumber = turnRows.count + 1
+        }
+      } catch (e) {
+        console.error('턴 넘버 계산 오류:', e)
+      }
       const turnData = {
         game_id: this.gameId,
         player_id: this.myId,
         action: 'play',
-        cards: cards
+        cards: cards,
+        turn_number: turnNumber
       }
-      
-      // 선택적 필드들 (테이블에 존재하는 경우에만 추가)
       try {
         const { error } = await supabase
           .from('lo_game_turns')
           .insert(turnData)
-        
         if (error) {
           console.error('턴 데이터 삽입 오류:', error)
-          // 오류가 발생해도 로컬 상태는 업데이트
         }
       } catch (err) {
         console.error('턴 데이터 삽입 중 예외:', err)
@@ -327,18 +349,30 @@ export const useGameStore = defineStore('game', {
       }
     },
     async cpuPass(cpuId) {
+      // 현재 턴 넘버 계산 (DB에서 턴 개수 조회)
+      let turnNumber = 1
+      try {
+        const { data: turnRows, error: turnCountError } = await supabase
+          .from('lo_game_turns')
+          .select('id', { count: 'exact', head: true })
+          .eq('game_id', this.gameId)
+        if (!turnCountError && typeof turnRows?.count === 'number') {
+          turnNumber = turnRows.count + 1
+        }
+      } catch (e) {
+        console.error('턴 넘버 계산 오류:', e)
+      }
       const passData = {
         game_id: this.gameId,
         player_id: cpuId,
         action: 'pass',
-        cards: []
+        cards: [],
+        turn_number: turnNumber
       }
-      
       try {
         const { error } = await supabase
           .from('lo_game_turns')
           .insert(passData)
-        
         if (error) {
           console.error('CPU 패스 데이터 삽입 오류:', error)
         }
