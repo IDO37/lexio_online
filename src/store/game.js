@@ -325,6 +325,12 @@ export const useGameStore = defineStore('game', {
     
     // 게임 상태 초기화
     initializeGame(gameData, players, myId) {
+      console.log('🎮 게임 초기화 시작:', {
+        gameData,
+        playersCount: players?.length,
+        myId
+      })
+      
       this.gameId = gameData.id
       this.roomId = gameData.room_id
       this.status = gameData.status
@@ -334,6 +340,14 @@ export const useGameStore = defineStore('game', {
       this.selectedCards = []
       this.error = null
       this.loading = false
+      
+      console.log('✅ 게임 초기화 완료:', {
+        gameId: this.gameId,
+        playersCount: this.players.length,
+        currentTurnUserId: this.currentTurnUserId,
+        myId: this.myId,
+        players: this.players.map(p => ({ id: p.id, email: p.email }))
+      })
     },
     
     // 내 패 설정

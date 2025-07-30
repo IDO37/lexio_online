@@ -870,6 +870,9 @@ async function startGame() {
     // 카드 분배 (실제 사용자만 DB에 저장)
     await distributeCards(gameData.id)
     
+    // 플레이어들의 카드 수 업데이트
+    await updatePlayerHandCounts(gameData.id)
+    
     // cloud 3을 가진 실제 플레이어 찾기 (렉시오 규칙)
     const firstTurnPlayerId = await findPlayerWithCloud3(gameData.id)
     
@@ -901,6 +904,10 @@ async function startGame() {
     gameStore.setStatus('playing')
     gameStore.setCurrentTurnUserId(firstTurnPlayerId || initialTurnPlayer)
     
+    // 게임 store 초기화 (players 배열 설정)
+    console.log('👥 게임 초기화 전 플레이어 목록:', players.value.map(p => ({ id: p.id, email: p.email })))
+    gameStore.initializeGame(gameData, players.value, auth.user?.id)
+    
     console.log('게임 상태 설정 완료:', {
       gameId: gameData.id,
       roomId: roomId.value,
@@ -919,7 +926,9 @@ async function startGame() {
       roomStatus: room.value?.status,
       myId: gameStore.myId,
       currentTurnUserId: gameStore.currentTurnUserId,
-      myHandCount: gameStore.myHand.length
+      myHandCount: gameStore.myHand.length,
+      playersCount: gameStore.players.length,
+      players: gameStore.players.map(p => ({ id: p.id, email: p.email }))
     })
     
   } catch (err) {
