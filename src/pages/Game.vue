@@ -100,6 +100,7 @@
               :lastPlayedPlayerName="lastPlayedPlayerName"
               :remainingCards="totalRemainingCards"
               :gameStatus="gameStore.status"
+              :turnTransitioning="gameStore.turnTransitioning"
             />
           </div>
           <!-- 플레이어 패널 -->
@@ -553,11 +554,16 @@ async function loadMyHand(gameId) {
 }
 
 async function updatePlayerHandCounts(gameId) {
+  console.log('🃏 플레이어 카드 수 업데이트 시작:', gameId)
+  
   const { data, error: err } = await supabase
     .from('lo_cards')
     .select('owner_id, in_hand')
     .eq('game_id', gameId)
     .eq('in_hand', true)
+  
+  console.log('📊 DB에서 가져온 카드 데이터:', data)
+  console.log('❌ DB 오류:', err)
   
   if (!err && data) {
     const handCounts = data.reduce((counts, card) => {
@@ -565,11 +571,28 @@ async function updatePlayerHandCounts(gameId) {
       return counts
     }, {})
     
+    console.log('📈 실제 플레이어 카드 수:', handCounts)
+    
     // 플레이어들의 카드 수 업데이트
-    players.value = players.value.map(player => ({
-      ...player,
-      handCount: handCounts[player.id] || 0
-    }))
+    players.value = players.value.map(player => {
+      let handCount = handCounts[player.id] || 0
+      
+      // CPU 플레이어인 경우 gameStore에서 카드 수 가져오기
+      if (player.id.startsWith('cpu')) {
+        const cpuCards = gameStore.cpuHands[player.id] || []
+        handCount = cpuCards.length
+        console.log(`🤖 CPU ${player.id} 카드 수:`, handCount)
+      }
+      
+      console.log(`👤 ${player.email} (${player.id}) 카드 수:`, handCount)
+      
+      return {
+        ...player,
+        handCount: handCount
+      }
+    })
+    
+    console.log('✅ 업데이트된 플레이어 목록:', players.value.map(p => ({ name: p.email, handCount: p.handCount })))
   }
 }
 
@@ -677,21 +700,39 @@ function setupRealtimeSubscriptions() {
       if (payload.new && payload.new.player_id) {
         // turn_complete 액션인 경우에만 턴 변경 처리
         if (payload.new.action === 'turn_complete') {
+          console.log('🔄 실시간 턴 변경 감지:', payload.new)
+          console.log('📋 현재 게임 상태:', {
+            currentTurnUserId: gameStore.currentTurnUserId,
+            players: gameStore.players.map(p => ({ id: p.id, name: p.email }))
+          })
+          
           // 현재 플레이어가 턴을 완료했으므로, 다음 플레이어로 턴 넘기기
           const currentIndex = gameStore.players.findIndex(p => p.id === payload.new.player_id)
           if (currentIndex !== -1) {
             const nextIndex = (currentIndex + 1) % gameStore.players.length
             const nextPlayerId = gameStore.players[nextIndex].id
+            
+            console.log('👥 턴 변경 계산:', {
+              currentIndex,
+              nextIndex,
+              currentPlayerId: payload.new.player_id,
+              nextPlayerId,
+              totalPlayers: gameStore.players.length
+            })
+            
             gameStore.setCurrentTurnUserId(nextPlayerId)
             
             console.log('턴 변경:', payload.new.player_id, '->', nextPlayerId)
             
             // CPU 턴이면 자동 플레이
             if (nextPlayerId.startsWith('cpu')) {
+              console.log('🤖 CPU 턴 감지, 자동 플레이 예약:', nextPlayerId)
               setTimeout(() => {
                 gameStore.cpuPlay(nextPlayerId)
               }, 1200)
             }
+          } else {
+            console.log('⚠️ 턴 변경 실패: 플레이어를 찾을 수 없음:', payload.new.player_id)
           }
         }
       }
