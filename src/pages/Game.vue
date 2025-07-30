@@ -270,7 +270,7 @@ const isRoomOwner = computed(() => {
 const gamePlayers = computed(() => {
   return players.value.map(player => ({
     id: player.id,
-    name: player.email,
+    name: player.id.startsWith('cpu') ? player.name || player.email : player.email,
     handCount: player.handCount || 0,
     isTurn: gameStore.currentTurnUserId === player.id,
     isMe: player.id === auth.user?.id,
@@ -998,6 +998,7 @@ async function addCpu() {
     const cpuPlayer = {
       id: cpuId,
       email: `CPU${cpuPlayerCount.value + 1}`,
+      name: `CPU${cpuPlayerCount.value + 1}`,
       joinedAt: new Date().toISOString(),
       handCount: 0
     }
@@ -1055,8 +1056,8 @@ async function loadMyCards(gameId) {
       // DB 형식을 게임 형식으로 변환
       const myCards = cards.map(card => ({
         suit: card.suit,
-        rank: card.rank,
-        number: parseInt(card.rank)
+        number: parseInt(card.rank), // CPU 카드와 동일한 형식으로 통일
+        rank: card.rank // 호환성을 위해 유지
       }))
       
       // 카드를 약한 순서부터 강한 순서로 정렬

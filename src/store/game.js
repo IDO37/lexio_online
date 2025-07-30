@@ -367,29 +367,51 @@ export const useGameStore = defineStore('game', {
       this.lastPlayedPlayerId = turnData.player_id
     },
     async cpuPlay(cpuId) {
-      console.log('CPU 플레이어 턴:', cpuId)
+      console.log('🤖 CPU 플레이 시작:', cpuId)
+      console.log('📋 현재 게임 상태:', {
+        gameId: this.gameId,
+        currentTurnUserId: this.currentTurnUserId,
+        lastPlayedCombo: this.lastPlayedCombo,
+        cpuHands: Object.keys(this.cpuHands)
+      })
       
       // CPU의 패 가져오기 (로컬에서 관리)
       const hand = this.cpuHands[cpuId] || []
+      console.log('🃏 CPU 패 확인:', {
+        cpuId,
+        handLength: hand.length,
+        hand: hand.map(c => `${c.suit} ${c.number}`)
+      })
+      
       if (!hand || hand.length === 0) {
         console.log('CPU 패가 없습니다. 패스합니다.')
         await this.cpuPass(cpuId)
         return
       }
       
-      console.log('CPU 패:', hand.map(c => `${c.suit} ${c.rank}`))
+      console.log('🃏 CPU 패:', hand.map(c => `${c.suit} ${c.number}`))
       
       // 가능한 모든 조합 찾기 (카드 수가 많은 것 우선)
       let bestPlay = null
       let bestCombo = null
       
+      console.log('🔍 유효한 조합 검색 시작...')
+      
       // 5장부터 1장까지 역순으로 검색 (많은 카드 우선)
       for (let n = Math.min(5, hand.length); n >= 1; n--) {
+        console.log(`🔍 ${n}장 조합 검색 중...`)
         const combs = getCombinations(hand, n)
+        console.log(`📊 ${n}장 조합 개수:`, combs.length)
         let foundValidCombo = false
         
         for (const comb of combs) {
           const combo = getCombo(comb)
+          if (combo) {
+            console.log(`✅ 유효한 조합 발견:`, {
+              cards: comb.map(c => `${c.suit} ${c.number}`),
+              combo: combo
+            })
+          }
           if (!combo) continue
           
           // 현재 보드보다 높은 조합인지 확인
@@ -397,12 +419,22 @@ export const useGameStore = defineStore('game', {
             (combo.type === this.lastPlayedCombo.type && getComboValue(combo) > getComboValue(this.lastPlayedCombo)) || 
             getComboRank(combo.type) > getComboRank(this.lastPlayedCombo?.type)
           
+          console.log(`🎯 조합 유효성 검사:`, {
+            combo: combo,
+            lastPlayedCombo: this.lastPlayedCombo,
+            isValidPlay: isValidPlay
+          })
+          
           if (isValidPlay) {
             // 같은 카드 수에서 가장 낮은 조합 선택
             if (!bestPlay || 
                 (bestPlay.length === comb.length && getComboValue(combo) < getComboValue(bestCombo))) {
               bestPlay = comb
               bestCombo = combo
+              console.log(`🏆 새로운 최고 조합:`, {
+                cards: comb.map(c => `${c.suit} ${c.number}`),
+                combo: combo
+              })
             }
             foundValidCombo = true
           }
@@ -410,19 +442,27 @@ export const useGameStore = defineStore('game', {
         
         // 이 카드 수에서 유효한 조합을 찾았다면, 더 적은 카드 수는 검색하지 않음
         if (foundValidCombo) {
+          console.log(`✅ ${n}장 조합에서 유효한 조합을 찾았습니다. 검색 중단.`)
           break
         }
       }
       
       if (bestPlay) {
-        console.log(`CPU가 ${bestPlay.length}장의 카드를 플레이합니다:`, bestPlay.map(c => `${c.suit} ${c.rank}`))
-        console.log('조합 타입:', bestCombo.type, '값:', getComboValue(bestCombo))
+        console.log(`🎮 CPU 플레이 결정:`, {
+          cpuId: cpuId,
+          cards: bestPlay.map(c => `${c.suit} ${c.number}`),
+          comboType: bestCombo.type,
+          comboValue: getComboValue(bestCombo)
+        })
         // 제출
         await this.submitCardsToBoard(bestPlay, bestCombo)
         this.removeCpuCardsFromHand(cpuId, bestPlay)
         await this.nextTurn()
       } else {
-        console.log('CPU가 패스합니다.')
+        console.log('⏭️ CPU 패스 결정:', {
+          cpuId: cpuId,
+          reason: '유효한 조합을 찾을 수 없음'
+        })
         // 패스
         await this.cpuPass(cpuId)
       }
@@ -590,12 +630,14 @@ function isStraight(numbers) {
 }
 
 function isStraightFlush(tiles) {
+  if (tiles.length !== 5) return false
+  
   // 같은 문양인지 확인
-  const firstSuit = tiles[0].suit
-  if (!tiles.every(tile => tile.suit === firstSuit)) return false
+  const suit = tiles[0].suit
+  if (!tiles.every(t => t.suit === suit)) return false
   
   // 연속된 숫자인지 확인
-  const numbers = tiles.map(t => t.number).sort((a, b) => b - a)
+  const numbers = tiles.map(t => t.number).sort((a, b) => a - b)
   return isStraight(numbers)
 }
 
