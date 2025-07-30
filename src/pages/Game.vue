@@ -115,7 +115,7 @@
             <CardDeck 
               :myHand="gameStore.myHand" 
               :isMyTurn="gameStore.isMyTurn"
-              :currentPlayerName="gamePlayers.find(p => p.id === gameStore.currentTurnUserId)?.name || ''"
+              :currentPlayerName="gameStore.currentTurnUserId ? (gamePlayers.value?.find(p => p.id === gameStore.currentTurnUserId)?.name || 'Unknown') : 'Unknown'"
               :isFirstTurn="!gameStore.lastPlayedCombo"
               :turnTransitioning="gameStore.turnTransitioning"
             />
@@ -323,8 +323,9 @@ const gameStatusDebug = computed(() => {
     isMyTurn: gameStore.isMyTurn,
     playersCount: gameStore.players.length,
     players: gameStore.players.map(p => ({ id: p.id, name: p.name || p.email })),
-    gamePlayersCount: gamePlayers.value.length,
-    currentPlayerName: gamePlayers.find(p => p.id === gameStore.currentTurnUserId)?.name || 'Unknown'
+    gamePlayersCount: players.value.length,
+    currentPlayerName: players.value.find(p => p.id === gameStore.currentTurnUserId)?.name || 
+                      players.value.find(p => p.id === gameStore.currentTurnUserId)?.email || 'Unknown'
   }
 })
 
@@ -919,17 +920,21 @@ async function startGame() {
     gameStore.setGameId(gameData.id)
     gameStore.setRoomId(roomId.value)
     gameStore.setStatus('playing')
-    gameStore.setCurrentTurnUserId(firstTurnPlayerId || initialTurnPlayer)
     
     // 게임 store 초기화 (players 배열 설정)
     console.log('👥 게임 초기화 전 플레이어 목록:', players.value.map(p => ({ id: p.id, email: p.email })))
     gameStore.initializeGame(gameData, players.value, auth.user?.id)
     
+    // 첫 턴 플레이어 설정 (initializeGame 이후에 설정)
+    const finalFirstTurnPlayer = firstTurnPlayerId || initialTurnPlayer
+    console.log('🎯 최종 첫 턴 플레이어 설정:', finalFirstTurnPlayer)
+    gameStore.setCurrentTurnUserId(finalFirstTurnPlayer)
+    
     console.log('게임 상태 설정 완료:', {
       gameId: gameData.id,
       roomId: roomId.value,
       status: 'playing',
-      currentTurnUserId: firstTurnPlayerId || initialTurnPlayer
+      currentTurnUserId: finalFirstTurnPlayer
     })
     
     // 현재 사용자의 카드 로드
@@ -1320,6 +1325,8 @@ async function addRoomCreatorAsPlayer(creatorId) {
 
 async function findPlayerWithCloud3(gameId) {
   try {
+    console.log('🔍 cloud 3 플레이어 검색 시작:', gameId)
+    
     // cloud 3을 가진 실제 플레이어 찾기 (렉시오 규칙)
     const { data, error } = await supabase
       .from('lo_cards')
@@ -1329,17 +1336,22 @@ async function findPlayerWithCloud3(gameId) {
       .eq('rank', '3')
       .eq('in_hand', true)
     
+    console.log('📊 cloud 3 검색 결과:', { data, error })
+    
     if (error) {
       console.error('cloud 3 검색 오류:', error)
       // 오류 발생 시 첫 번째 실제 플레이어로 설정
       const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
+      console.log('⚠️ 오류로 인한 대체 플레이어:', firstRealPlayer?.id)
       return firstRealPlayer?.id || players.value[0]?.id
     }
     
     if (!data || data.length === 0) {
       console.log('cloud 3을 가진 플레이어가 없습니다.')
+      console.log('📋 현재 플레이어 목록:', players.value.map(p => ({ id: p.id, email: p.email })))
       // cloud 3이 없으면 첫 번째 실제 플레이어로 설정
       const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
+      console.log('⚠️ cloud 3 없음으로 인한 대체 플레이어:', firstRealPlayer?.id)
       return firstRealPlayer?.id || players.value[0]?.id
     }
     
@@ -1354,6 +1366,7 @@ async function findPlayerWithCloud3(gameId) {
     console.error('cloud 3 플레이어 찾기 오류:', err)
     // 오류 발생 시 첫 번째 실제 플레이어로 설정
     const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
+    console.log('⚠️ 예외로 인한 대체 플레이어:', firstRealPlayer?.id)
     return firstRealPlayer?.id || players.value[0]?.id
   }
 }
