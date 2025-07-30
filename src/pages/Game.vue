@@ -115,7 +115,7 @@
             <CardDeck 
               :myHand="gameStore.myHand" 
               :isMyTurn="gameStore.isMyTurn"
-              :currentPlayerName="gameStore.currentPlayer?.name || ''"
+              :currentPlayerName="gamePlayers.find(p => p.id === gameStore.currentTurnUserId)?.name || ''"
               :isFirstTurn="!gameStore.lastPlayedCombo"
               :turnTransitioning="gameStore.turnTransitioning"
             />
@@ -281,7 +281,7 @@ const gamePlayers = computed(() => {
 const lastPlayedPlayerName = computed(() => {
   if (!gameStore.lastPlayedPlayerId) return ''
   const player = players.value.find(p => p.id === gameStore.lastPlayedPlayerId)
-  return player?.email || 'Unknown'
+  return player?.name || player?.email || 'Unknown'
 })
 
 const totalRemainingCards = computed(() => {
@@ -320,7 +320,11 @@ const gameStatusDebug = computed(() => {
     currentTurnUserId: gameStore.currentTurnUserId,
     myId: gameStore.myId,
     myHandCount: gameStore.myHand.length,
-    isMyTurn: gameStore.isMyTurn
+    isMyTurn: gameStore.isMyTurn,
+    playersCount: gameStore.players.length,
+    players: gameStore.players.map(p => ({ id: p.id, name: p.name || p.email })),
+    gamePlayersCount: gamePlayers.value.length,
+    currentPlayerName: gamePlayers.find(p => p.id === gameStore.currentTurnUserId)?.name || 'Unknown'
   }
 })
 
@@ -610,6 +614,13 @@ async function loadLastTurn(gameId) {
 }
 
 function setupRealtimeSubscriptions() {
+  console.log('🔌 실시간 구독 설정 시작')
+  console.log('📋 구독 설정 정보:', {
+    roomId: roomId.value,
+    gameId: gameStore.gameId,
+    playersCount: gameStore.players.length
+  })
+  
   // 방 정보 실시간 구독
   roomSubscription = supabase
     .channel('room-changes')
@@ -619,6 +630,7 @@ function setupRealtimeSubscriptions() {
       table: 'lo_rooms',
       filter: `id=eq.${roomId.value}`
     }, (payload) => {
+      console.log('🏠 방 정보 변경 감지:', payload)
       if (payload.eventType === 'DELETE') {
         router.push('/game')
         return
@@ -642,6 +654,7 @@ function setupRealtimeSubscriptions() {
       table: 'lo_room_players',
       filter: `room_id=eq.${roomId.value}`
     }, async (payload) => {
+      console.log('👥 플레이어 목록 변경 감지:', payload)
       if (payload.eventType === 'DELETE') {
         await loadPlayers()
         
@@ -678,6 +691,7 @@ function setupRealtimeSubscriptions() {
       table: 'lo_games',
       filter: `room_id=eq.${roomId.value}`
     }, async (payload) => {
+      console.log('🎮 게임 상태 변경 감지:', payload)
       if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
         await loadGameData()
       }
@@ -693,6 +707,7 @@ function setupRealtimeSubscriptions() {
       table: 'lo_game_turns',
       filter: `game_id=eq.${gameStore.gameId}`
     }, async (payload) => {
+      console.log('🔄 턴 정보 변경 감지:', payload)
       gameStore.updateLastPlay(payload.new)
       await updatePlayerHandCounts(gameStore.gameId)
       
@@ -738,6 +753,8 @@ function setupRealtimeSubscriptions() {
       }
     })
     .subscribe()
+    
+  console.log('✅ 실시간 구독 설정 완료')
 }
 
 async function startGame() {
@@ -930,6 +947,10 @@ async function startGame() {
       playersCount: gameStore.players.length,
       players: gameStore.players.map(p => ({ id: p.id, email: p.email }))
     })
+    
+    // 게임 시작 후 실시간 구독 재설정
+    console.log('🔄 게임 시작 후 실시간 구독 재설정')
+    setupRealtimeSubscriptions()
     
   } catch (err) {
     console.error('게임 시작 오류:', err)
