@@ -257,8 +257,38 @@ export const useGameStore = defineStore('game', {
       const nextIndex = (currentIndex + 1) % this.players.length
       const nextPlayerId = this.players[nextIndex].id
       
-      // DB 업데이트 없이 로컬에서만 턴 관리 (current_turn_user_id 컬럼이 없으므로)
-      this.currentTurnUserId = nextPlayerId
+      // DB에 턴 변경 정보 저장 (실시간 구독에서 감지)
+      try {
+        const { count, error: turnCountError } = await supabase
+          .from('lo_game_turns')
+          .select('', { count: 'exact', head: true })
+          .eq('game_id', this.gameId)
+       
+        const turnNumber = (!turnCountError && typeof count === 'number') ? count + 1 : 1
+       
+        const turnData = {
+          game_id: this.gameId,
+          player_id: this.currentTurnUserId, // 현재 플레이어 (턴 완료)
+          action: 'turn_complete',
+          cards: [],
+          turn_number: turnNumber
+        }
+       
+        const { error } = await supabase
+          .from('lo_game_turns')
+          .insert(turnData)
+       
+        if (error) {
+          console.error('턴 변경 데이터 삽입 오류:', error)
+          // 오류가 발생해도 로컬에서 턴 변경
+          this.currentTurnUserId = nextPlayerId
+        }
+        // 성공하면 실시간 구독에서 턴 변경을 처리
+      } catch (err) {
+        console.error('턴 변경 데이터 삽입 중 예외:', err)
+        // 예외가 발생해도 로컬에서 턴 변경
+        this.currentTurnUserId = nextPlayerId
+      }
       
       // CPU 턴이면 자동 플레이
       if (isCpuPlayer(nextPlayerId)) {

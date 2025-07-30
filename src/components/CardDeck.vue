@@ -137,11 +137,7 @@ function cardDisplay(card) {
 
 function toggleCard(idx) {
   if (!canInteract.value) return
-  if (selectedCards.value.includes(idx)) {
-    selectedCards.value = selectedCards.value.filter(i => i !== idx)
-  } else {
-    selectedCards.value.push(idx)
-  }
+  gameStore.toggleCard(idx)
 }
 
 async function playCards() {

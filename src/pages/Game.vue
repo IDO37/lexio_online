@@ -672,6 +672,29 @@ function setupRealtimeSubscriptions() {
     }, async (payload) => {
       gameStore.updateLastPlay(payload.new)
       await updatePlayerHandCounts(gameStore.gameId)
+      
+      // 턴 변경 처리
+      if (payload.new && payload.new.player_id) {
+        // turn_complete 액션인 경우에만 턴 변경 처리
+        if (payload.new.action === 'turn_complete') {
+          // 현재 플레이어가 턴을 완료했으므로, 다음 플레이어로 턴 넘기기
+          const currentIndex = gameStore.players.findIndex(p => p.id === payload.new.player_id)
+          if (currentIndex !== -1) {
+            const nextIndex = (currentIndex + 1) % gameStore.players.length
+            const nextPlayerId = gameStore.players[nextIndex].id
+            gameStore.setCurrentTurnUserId(nextPlayerId)
+            
+            console.log('턴 변경:', payload.new.player_id, '->', nextPlayerId)
+            
+            // CPU 턴이면 자동 플레이
+            if (nextPlayerId.startsWith('cpu')) {
+              setTimeout(() => {
+                gameStore.cpuPlay(nextPlayerId)
+              }, 1200)
+            }
+          }
+        }
+      }
     })
     .subscribe()
 }
