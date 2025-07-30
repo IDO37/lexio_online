@@ -317,9 +317,8 @@ export const useGameStore = defineStore('game', {
       // CPU 턴이면 자동 플레이
       if (isCpuPlayer(nextPlayerId)) {
         console.log('🤖 CPU 턴 감지, 자동 플레이 예약:', nextPlayerId)
-        setTimeout(() => {
-          this.cpuPlay(nextPlayerId)
-        }, 1200)
+        // CPU는 이미 자신의 턴에서 플레이/패스를 완료했으므로 추가 호출 불필요
+        console.log('✅ CPU 턴 완료됨, 추가 플레이 호출 없음')
       }
     },
     
@@ -454,10 +453,23 @@ export const useGameStore = defineStore('game', {
           comboType: bestCombo.type,
           comboValue: getComboValue(bestCombo)
         })
-        // 제출
-        await this.submitCardsToBoard(bestPlay, bestCombo)
+        // CPU 플레이어는 DB에 저장하지 않고 로컬에서만 관리
+        console.log('💾 CPU 플레이는 DB에 저장하지 않음 (로컬 관리)')
+        
+        // 로컬 상태 업데이트
+        this.lastPlayedCards = bestPlay
+        this.lastPlayedCombo = bestCombo
+        this.lastPlayedPlayerId = cpuId
+        
         this.removeCpuCardsFromHand(cpuId, bestPlay)
-        await this.nextTurn()
+        
+        // 턴 전환 애니메이션
+        this.turnTransitioning = true
+        setTimeout(async () => {
+          console.log('🔄 CPU 플레이 후 턴 전환')
+          await this.nextTurn()
+          this.turnTransitioning = false
+        }, 1000)
       } else {
         console.log('⏭️ CPU 패스 결정:', {
           cpuId: cpuId,
@@ -468,40 +480,15 @@ export const useGameStore = defineStore('game', {
       }
     },
     async cpuPass(cpuId) {
-      // 현재 턴 넘버 계산 (DB에서 턴 개수 조회)
-      let turnNumber = 1
-      try {
-        const { count, error: turnCountError } = await supabase
-          .from('lo_game_turns')
-          .select('', { count: 'exact', head: true })
-          .eq('game_id', this.gameId)
-        if (!turnCountError && typeof count === 'number') {
-          turnNumber = count + 1
-        }
-      } catch (e) {
-        console.error('턴 넘버 계산 오류:', e)
-      }
-      const passData = {
-        game_id: this.gameId,
-        player_id: cpuId,
-        action: 'pass',
-        cards: [],
-        turn_number: turnNumber
-      }
-      try {
-        const { error } = await supabase
-          .from('lo_game_turns')
-          .insert(passData)
-        if (error) {
-          console.error('CPU 패스 데이터 삽입 오류:', error)
-        }
-      } catch (err) {
-        console.error('CPU 패스 데이터 삽입 중 예외:', err)
-      }
+      console.log('🤖 CPU 패스:', cpuId)
+      
+      // CPU 플레이어는 DB에 저장하지 않고 로컬에서만 턴 관리
+      console.log('💾 CPU 패스는 DB에 저장하지 않음 (로컬 턴 관리)')
       
       // 턴 전환 애니메이션
       this.turnTransitioning = true
       setTimeout(async () => {
+        console.log('🔄 CPU 패스 후 턴 전환')
         await this.nextTurn()
         this.turnTransitioning = false
       }, 1000)

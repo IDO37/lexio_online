@@ -743,9 +743,8 @@ function setupRealtimeSubscriptions() {
             // CPU 턴이면 자동 플레이
             if (nextPlayerId.startsWith('cpu')) {
               console.log('🤖 CPU 턴 감지, 자동 플레이 예약:', nextPlayerId)
-              setTimeout(() => {
-                gameStore.cpuPlay(nextPlayerId)
-              }, 1200)
+              // CPU는 이미 자신의 턴에서 플레이/패스를 완료했으므로 추가 호출 불필요
+              console.log('✅ CPU 턴 완료됨, 추가 플레이 호출 없음')
             }
           } else {
             console.log('⚠️ 턴 변경 실패: 플레이어를 찾을 수 없음:', payload.new.player_id)
