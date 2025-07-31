@@ -86,8 +86,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useGameStore } from '../store/game.js'
-import { getComboName } from '../store/game.js'
+import { useGameStore, getComboName, getCombo } from '../store/game.js'
 
 const props = defineProps({
   myHand: { type: Array, required: true },
@@ -150,77 +149,5 @@ async function pass() {
   await gameStore.pass()
 }
 
-// 카드 조합 분석 함수 (game store에서 가져옴)
-function getCombo(cards) {
-  if (!cards || cards.length === 0) return null
-  
-  const sortedCards = [...cards].sort((a, b) => getCardValue(b.rank) - getCardValue(a.rank))
-  const ranks = sortedCards.map(c => c.rank)
-  const rankCounts = getRankCounts(ranks)
-  
-  // 파이브카드 (5장)
-  if (cards.length === 5 && Object.values(rankCounts).some(count => count === 5)) {
-    return { type: 'five_card', value: getCardValue(ranks[0]) }
-  }
-  
-  // 포카드 (4장)
-  if (cards.length === 4 && Object.values(rankCounts).some(count => count === 4)) {
-    return { type: 'four_card', value: getCardValue(ranks[0]) }
-  }
-  
-  // 풀하우스 (5장: 3장 + 2장)
-  if (cards.length === 5) {
-    const counts = Object.values(rankCounts).sort((a, b) => b - a)
-    if (counts[0] === 3 && counts[1] === 2) {
-      const threeRank = Object.keys(rankCounts).find(rank => rankCounts[rank] === 3)
-      return { type: 'full_house', value: getCardValue(threeRank) }
-    }
-  }
-  
-  // 스트레이트 (5장 연속)
-  if (cards.length === 5 && isStraight(ranks)) {
-    return { type: 'straight', value: getCardValue(ranks[0]) }
-  }
-  
-  // 트리플 (3장)
-  if (cards.length === 3 && Object.values(rankCounts).some(count => count === 3)) {
-    return { type: 'triple', value: getCardValue(ranks[0]) }
-  }
-  
-  // 페어 (2장)
-  if (cards.length === 2 && Object.values(rankCounts).some(count => count === 2)) {
-    return { type: 'pair', value: getCardValue(ranks[0]) }
-  }
-  
-  // 싱글 (1장)
-  if (cards.length === 1) {
-    return { type: 'single', value: getCardValue(ranks[0]) }
-  }
-  
-  return null
-}
 
-function getCardValue(rank) {
-  const values = {
-    'A': 14, 'K': 13, 'Q': 12, 'J': 11,
-    '10': 10, '9': 9, '8': 8, '7': 7,
-    '6': 6, '5': 5, '4': 4, '3': 3, '2': 2
-  }
-  return values[rank] || 0
-}
-
-function getRankCounts(ranks) {
-  return ranks.reduce((counts, rank) => {
-    counts[rank] = (counts[rank] || 0) + 1
-    return counts
-  }, {})
-}
-
-function isStraight(ranks) {
-  const values = ranks.map(r => getCardValue(r)).sort((a, b) => b - a)
-  for (let i = 1; i < values.length; i++) {
-    if (values[i-1] - values[i] !== 1) return false
-  }
-  return true
-}
 </script> 

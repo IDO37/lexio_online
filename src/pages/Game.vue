@@ -1111,112 +1111,64 @@ async function loadMyCards(gameId) {
 }
 
 async function distributeCards(gameId) {
-  // 플레이어 수에 따른 렉시오 타일 분배
-  const playerCount = players.value.length
-  const suits = ['cloud', 'star', 'moon', 'sun']
-  
-  let numbers, totalCards, cardsPerPlayer
-  
+  const playerCount = players.value.length;
+  const suits = ['cloud', 'star', 'moon', 'sun'];
+  let numbers, totalCards;
+
   if (playerCount === 3) {
-    // 3인: 1~9까지, 각자 12장씩 (총 36장)
-    numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    totalCards = 36
-    cardsPerPlayer = 12
-  } else if (playerCount === 4) {
-    // 4인: 1~13까지, 각자 13장씩 (총 52장)
-    numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
-    totalCards = 52
-    cardsPerPlayer = 13
+    numbers = Array.from({ length: 9 }, (_, i) => i + 1);
+    totalCards = 36;
   } else if (playerCount === 5) {
-    // 5인: 1~15까지, 각자 12장씩 (총 60장)
-    numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-    totalCards = 60
-    cardsPerPlayer = 12
-  } else {
-    // 기본값: 4인 규칙
-    numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
-    totalCards = 52
-    cardsPerPlayer = 13
+    numbers = Array.from({ length: 15 }, (_, i) => i + 1);
+    totalCards = 60;
+  } else { // 4인 또는 기본값
+    numbers = Array.from({ length: 13 }, (_, i) => i + 1);
+    totalCards = 52;
   }
-  
-  const tiles = []
-  for (const suit of suits) {
-    for (const number of numbers) {
-      tiles.push({ suit, number })
-    }
-  }
-  
-  // 타일 섞기
+
+  const tiles = suits.flatMap(suit => numbers.map(number => ({ suit, number })));
   for (let i = tiles.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[tiles[i], tiles[j]] = [tiles[j], tiles[i]]
+    const j = Math.floor(Math.random() * (i + 1));
+    [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
   }
-  
-  // 모든 플레이어에게 카드 분배 (완전 랜덤)
-  const allPlayerIds = players.value.map(p => p.id)
-  const realPlayerIds = players.value.filter(p => !p.id.startsWith('cpu')).map(p => p.id)
-  const cpuPlayers = players.value.filter(p => p.id.startsWith('cpu'))
-  
-  // 각 플레이어별로 카드 분배 (완전 랜덤)
-  console.log('플레이어들에게 카드 분배 시작 (완전 랜덤):', allPlayerIds)
-  
-  // 각 플레이어별로 카드 인덱스 할당
-  const playerCardIndices = {}
-  allPlayerIds.forEach(playerId => {
-    playerCardIndices[playerId] = []
-  })
-  
-  // 카드 인덱스를 플레이어별로 랜덤하게 분배
+
+  const allPlayerIds = players.value.map(p => p.id);
+  const realPlayerIds = allPlayerIds.filter(id => !id.startsWith('cpu'));
+  const cpuPlayerIds = allPlayerIds.filter(id => id.startsWith('cpu'));
+
+  const cardsToInsert = [];
+  const cpuHands = Object.fromEntries(cpuPlayerIds.map(id => [id, []]));
+
   for (let i = 0; i < totalCards; i++) {
-    const playerIndex = i % allPlayerIds.length
-    const playerId = allPlayerIds[playerIndex]
-    playerCardIndices[playerId].push(i)
-  }
-  
-  // 각 플레이어의 카드 인덱스를 섞기
-  Object.keys(playerCardIndices).forEach(playerId => {
-    const indices = playerCardIndices[playerId]
-    for (let i = indices.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[indices[i], indices[j]] = [indices[j], indices[i]]
-    }
-  })
-  
-  // 실제 사용자들에게 카드 분배 (DB에 저장)
-  for (const playerId of realPlayerIds) {
-    const cardIndices = playerCardIndices[playerId]
-    console.log(`플레이어 ${playerId} 카드 분배:`, cardIndices.length, '장')
-    
-    for (const cardIndex of cardIndices) {
-      const tile = tiles[cardIndex]
-      console.log(`  ${tile.suit} ${tile.number} -> ${playerId}`)
-      
-      await supabase
-        .from('lo_cards')
-        .insert({
-          game_id: gameId,
-          owner_id: playerId,
-          suit: tile.suit,
-          rank: tile.number.toString(), // DB 호환성을 위해 문자열로 저장
-          in_hand: true
-        })
+    const playerId = allPlayerIds[i % playerCount];
+    const tile = tiles[i];
+
+    if (realPlayerIds.includes(playerId)) {
+      cardsToInsert.push({
+        game_id: gameId,
+        owner_id: playerId,
+        suit: tile.suit,
+        rank: tile.number.toString(),
+        in_hand: true,
+      });
+    } else if (cpuPlayerIds.includes(playerId)) {
+      cpuHands[playerId].push(tile);
     }
   }
-  
-  // CPU 플레이어들의 카드는 로컬에서만 관리
-  if (cpuPlayers.length > 0) {
-    console.log('CPU 플레이어 카드는 로컬에서 관리됩니다:', cpuPlayers.map(p => p.id))
-    // CPU 플레이어들의 카드를 로컬에 저장
-    cpuPlayers.forEach(cpuPlayer => {
-      const cardIndices = playerCardIndices[cpuPlayer.id]
-      const cpuCards = cardIndices.map(index => tiles[index])
-      // CPU 카드를 게임 store에 저장
-      gameStore.setCpuHand(cpuPlayer.id, cpuCards)
-      console.log(`CPU ${cpuPlayer.id} 카드:`, cpuCards.map(c => `${c.suit} ${c.number}`))
-    })
+
+  if (cardsToInsert.length > 0) {
+    const { error } = await supabase.from('lo_cards').insert(cardsToInsert);
+    if (error) {
+      console.error('카드 대량 삽입 오류:', error);
+      throw error;
+    }
   }
-  
-  console.log(`${playerCount}인 게임: ${totalCards}장 분배 완료 (각자 ${cardsPerPlayer}장)`)
+
+  for (const cpuId in cpuHands) {
+    gameStore.setCpuHand(cpuId, cpuHands[cpuId]);
+  }
+
+  console.log(`${playerCount}인 게임: ${totalCards}장 분배 완료`);
 }
 
 async function leaveRoom() {
