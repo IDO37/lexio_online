@@ -544,7 +544,7 @@ export const COMBO_RANKS = {
 }
 
 // 렉시오 카드 조합 분석 함수들
-function getCombo(tiles) {
+export function getCombo(tiles) {
   if (!tiles || tiles.length === 0) return null
   
   const sortedTiles = [...tiles].sort((a, b) => getTileValue(b) - getTileValue(a))
