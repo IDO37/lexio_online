@@ -200,7 +200,7 @@ export const useGameStore = defineStore('game', {
     },
     
     // 카드를 게임 보드에 제출
-    """    async submitCardsToBoard(cards, combo, playerId) {
+    async submitCardsToBoard(cards, combo, playerId) {
       const effectivePlayerId = playerId || this.myId;
 
       if (!this.gameId || !effectivePlayerId) {
@@ -244,7 +244,7 @@ export const useGameStore = defineStore('game', {
       this.lastPlayedCards = cards
       this.lastPlayedCombo = combo
       this.lastPlayedPlayerId = effectivePlayerId
-    },"",
+    },
     
     // 패에서 카드 제거
     removeCardsFromHand(cards) {
