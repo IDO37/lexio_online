@@ -200,8 +200,10 @@ export const useGameStore = defineStore('game', {
     },
     
     // 카드를 게임 보드에 제출
-    async submitCardsToBoard(cards, combo) {
-      if (!this.gameId || !this.myId) {
+    async submitCardsToBoard(cards, combo, playerId) {
+      const effectivePlayerId = playerId || this.myId;
+
+      if (!this.gameId || !effectivePlayerId) {
         throw new Error('게임 ID 또는 사용자 ID가 없습니다.')
       }
       // 현재 턴 넘버 계산 (DB에서 턴 개수 조회)
@@ -219,7 +221,7 @@ export const useGameStore = defineStore('game', {
       }
       const turnData = {
         game_id: this.gameId,
-        player_id: this.myId,
+        player_id: effectivePlayerId,
         action: 'play',
         cards: cards,
         turn_number: turnNumber
@@ -238,14 +240,14 @@ export const useGameStore = defineStore('game', {
       // 로컬 상태 업데이트
       this.lastPlayedCards = cards
       this.lastPlayedCombo = combo
-      this.lastPlayedPlayerId = this.myId
+      this.lastPlayedPlayerId = effectivePlayerId
     },
     
     // 패에서 카드 제거
     removeCardsFromHand(cards) {
-      const cardIds = cards.map(c => `${c.suit}-${c.rank}`)
+      const cardIds = cards.map(c => `${c.suit}-${c.number}`)
       this.myHand = this.myHand.filter(card => 
-        !cardIds.includes(`${card.suit}-${card.rank}`)
+        !cardIds.includes(`${card.suit}-${card.number}`)
       )
     },
     
@@ -362,13 +364,13 @@ export const useGameStore = defineStore('game', {
     removeCpuCardsFromHand(cpuId, cards) {
       // CPU 카드는 로컬에서만 관리
       const currentHand = this.cpuHands[cpuId] || []
-      const cardIds = cards.map(c => `${c.suit}-${c.rank}`)
+      const cardIds = cards.map(c => `${c.suit}-${c.number}`)
       
       this.cpuHands[cpuId] = currentHand.filter(card => 
-        !cardIds.includes(`${card.suit}-${card.rank}`)
+        !cardIds.includes(`${card.suit}-${card.number}`)
       )
       
-      console.log(`CPU ${cpuId} 카드 제거 후:`, this.cpuHands[cpuId].map(c => `${c.suit} ${c.rank}`))
+      console.log(`CPU ${cpuId} 카드 제거 후:`, this.cpuHands[cpuId].map(c => `${c.suit} ${c.number}`))
     }
   }
 })
