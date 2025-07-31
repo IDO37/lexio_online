@@ -368,14 +368,13 @@ onUnmounted(() => {
 })
 
 // CPU 턴 자동 플레이
-watch(() => gameStore.currentTurnUserId, (newTurnUserId) => {
+watch(() => gameStore.currentTurnUserId, async (newTurnUserId) => {
   if (newTurnUserId && newTurnUserId.startsWith('cpu') && isRoomOwner.value) {
     // 1.5초 지연 후 CPU 플레이 호출
-    setTimeout(() => {
-      gameStore.cpuPlay(newTurnUserId);
-    }, 1500);
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await gameStore.cpuPlay(newTurnUserId);
   }
-});
+}, { immediate: true });
 
 async function loadRoom() {
   if (!roomId.value) return

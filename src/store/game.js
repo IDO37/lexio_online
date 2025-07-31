@@ -251,74 +251,22 @@ export const useGameStore = defineStore('game', {
     
     // 다음 턴으로 넘기기
     async nextTurn() {
-      console.log('🔄 nextTurn 호출됨')
-      console.log('📋 현재 상태:', {
-        gameId: this.gameId,
-        playersCount: this.players.length,
-        currentTurnUserId: this.currentTurnUserId,
-        myId: this.myId
-      })
-      
-      if (!this.gameId || !this.players.length) return
-      
-      const currentIndex = this.players.findIndex(p => p.id === this.currentTurnUserId)
-      const nextIndex = (currentIndex + 1) % this.players.length
-      const nextPlayerId = this.players[nextIndex].id
-      
-      console.log('👥 턴 변경 계산:', {
-        currentIndex,
-        nextIndex,
-        currentPlayerId: this.currentTurnUserId,
-        nextPlayerId,
-        totalPlayers: this.players.length
-      })
-      
-      // DB에 턴 변경 정보 저장 (실시간 구독에서 감지)
+      if (!this.gameId || this.players.length === 0) return;
+
+      const currentIndex = this.players.findIndex(p => p.id === this.currentTurnUserId);
+      if (currentIndex === -1) return;
+
+      const nextIndex = (currentIndex + 1) % this.players.length;
+      const nextPlayerId = this.players[nextIndex].id;
+
+      // 턴을 로컬에서 즉시 변경
+      this.currentTurnUserId = nextPlayerId;
+
+      // 턴 변경 정보를 DB에 기록 (다른 플레이어들에게 전파용)
       try {
-        const { count, error: turnCountError } = await supabase
-          .from('lo_game_turns')
-          .select('', { count: 'exact', head: true })
-          .eq('game_id', this.gameId)
-        
-        const turnNumber = (!turnCountError && typeof count === 'number') ? count + 1 : 1
-        
-        console.log('📊 턴 넘버 계산:', { count, turnNumber, error: turnCountError })
-        
-        const turnData = {
-          game_id: this.gameId,
-          player_id: this.currentTurnUserId, // 현재 플레이어 (턴 완료)
-          action: 'turn_complete',
-          cards: [],
-          turn_number: turnNumber
-        }
-        
-        console.log('💾 턴 완료 데이터 저장:', turnData)
-        
-        const { error } = await supabase
-          .from('lo_game_turns')
-          .insert(turnData)
-        
-        if (error) {
-          console.error('턴 변경 데이터 삽입 오류:', error)
-          // 오류가 발생해도 로컬에서 턴 변경
-          this.currentTurnUserId = nextPlayerId
-          console.log('⚠️ DB 오류로 인한 로컬 턴 변경:', nextPlayerId)
-        } else {
-          console.log('✅ 턴 완료 데이터 저장 성공, 실시간 구독에서 처리 대기')
-        }
-        // 성공하면 실시간 구독에서 턴 변경을 처리
-      } catch (err) {
-        console.error('턴 변경 데이터 삽입 중 예외:', err)
-        // 예외가 발생해도 로컬에서 턴 변경
-        this.currentTurnUserId = nextPlayerId
-        console.log('⚠️ 예외로 인한 로컬 턴 변경:', nextPlayerId)
-      }
-      
-      // CPU 턴이면 자동 플레이
-      if (isCpuPlayer(nextPlayerId)) {
-        console.log('🤖 CPU 턴 감지, 자동 플레이 예약:', nextPlayerId)
-        // CPU는 이미 자신의 턴에서 플레이/패스를 완료했으므로 추가 호출 불필요
-        console.log('✅ CPU 턴 완료됨, 추가 플레이 호출 없음')
+        await supabase.from('lo_games').update({ current_turn_user_id: nextPlayerId }).eq('id', this.gameId);
+      } catch (error) {
+        console.error('DB 턴 업데이트 오류:', error);
       }
     },
     
