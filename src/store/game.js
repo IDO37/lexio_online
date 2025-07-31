@@ -200,48 +200,51 @@ export const useGameStore = defineStore('game', {
     },
     
     // 카드를 게임 보드에 제출
-    async submitCardsToBoard(cards, combo, playerId) {
+    """    async submitCardsToBoard(cards, combo, playerId) {
       const effectivePlayerId = playerId || this.myId;
 
       if (!this.gameId || !effectivePlayerId) {
         throw new Error('게임 ID 또는 사용자 ID가 없습니다.')
       }
-      // 현재 턴 넘버 계산 (DB에서 턴 개수 조회)
-      let turnNumber = 1
-      try {
-        const { count, error: turnCountError } = await supabase
-          .from('lo_game_turns')
-          .select('', { count: 'exact', head: true })
-          .eq('game_id', this.gameId)
-        if (!turnCountError && typeof count === 'number') {
-          turnNumber = count + 1
+
+      if (!isCpuPlayer(effectivePlayerId)) {
+        // 현재 턴 넘버 계산 (DB에서 턴 개수 조회)
+        let turnNumber = 1
+        try {
+          const { count, error: turnCountError } = await supabase
+            .from('lo_game_turns')
+            .select('', { count: 'exact', head: true })
+            .eq('game_id', this.gameId)
+          if (!turnCountError && typeof count === 'number') {
+            turnNumber = count + 1
+          }
+        } catch (e) {
+          console.error('턴 넘버 계산 오류:', e)
         }
-      } catch (e) {
-        console.error('턴 넘버 계산 오류:', e)
-      }
-      const turnData = {
-        game_id: this.gameId,
-        player_id: effectivePlayerId,
-        action: 'play',
-        cards: cards,
-        turn_number: turnNumber
-      }
-      try {
-        const { error } = await supabase
-          .from('lo_game_turns')
-          .insert(turnData)
-        if (error) {
-          console.error('턴 데이터 삽입 오류:', error)
+        const turnData = {
+          game_id: this.gameId,
+          player_id: effectivePlayerId,
+          action: 'play',
+          cards: cards,
+          turn_number: turnNumber
         }
-      } catch (err) {
-        console.error('턴 데이터 삽입 중 예외:', err)
+        try {
+          const { error } = await supabase
+            .from('lo_game_turns')
+            .insert(turnData)
+          if (error) {
+            console.error('턴 데이터 삽입 오류:', error)
+          }
+        } catch (err) {
+          console.error('턴 데이터 삽입 중 예외:', err)
+        }
       }
       
       // 로컬 상태 업데이트
       this.lastPlayedCards = cards
       this.lastPlayedCombo = combo
       this.lastPlayedPlayerId = effectivePlayerId
-    },
+    },"",
     
     // 패에서 카드 제거
     removeCardsFromHand(cards) {
@@ -324,30 +327,69 @@ export const useGameStore = defineStore('game', {
         return;
       }
 
+      const isFollowing = this.lastPlayedCombo && this.lastPlayedCombo.type !== 'pass';
       let bestPlay = null;
       let bestCombo = null;
 
-      for (let n = Math.min(5, hand.length); n >= 1; n--) {
-        const combs = getCombinations(hand, n);
-        for (const comb of combs) {
-          const combo = getCombo(comb);
-          if (!combo) continue;
+      if (isFollowing) {
+        // --- FOLLOWING LOGIC ---
+        // Must play the same number of cards, and it must be stronger.
+        const n = this.lastPlayedCards.length;
+        if (hand.length >= n) {
+          const combs = getCombinations(hand, n);
+          let possiblePlays = [];
 
-          const isValidPlay = !this.lastPlayedCombo ||
-            (combo.type === this.lastPlayedCombo.type && getComboValue(combo) > getComboValue(this.lastPlayedCombo)) ||
-            getComboRank(combo.type) > getComboRank(this.lastPlayedCombo?.type);
+          for (const comb of combs) {
+            const combo = getCombo(comb);
+            if (!combo) continue;
 
-          if (isValidPlay) {
-            if (!bestPlay || (bestPlay.length === comb.length && getComboValue(combo) < getComboValue(bestCombo))) {
-              bestPlay = comb;
-              bestCombo = combo;
+            const isStronger =
+              (combo.type === this.lastPlayedCombo.type && getComboValue(combo) > getComboValue(this.lastPlayedCombo)) ||
+              getComboRank(combo.type) > getComboRank(this.lastPlayedCombo.type);
+
+            if (isStronger) {
+              possiblePlays.push({ play: comb, combo: combo });
+            }
+          }
+
+          if (possiblePlays.length > 0) {
+            // Find the STRONGEST play among the valid ones, as requested.
+            const strongestPlay = possiblePlays.reduce((strongest, current) => {
+              if (!strongest) return current;
+              // A higher combo value means a stronger play.
+              return getComboValue(current.combo) > getComboValue(strongest.combo) ? current : strongest;
+            });
+            bestPlay = strongestPlay.play;
+            bestCombo = strongestPlay.combo;
+          }
+        }
+      } else {
+        // --- LEADING LOGIC ---
+        // Can play anything. A good strategy is to play the weakest possible combo to save strong cards.
+        let possiblePlays = [];
+        for (let n = 1; n <= Math.min(5, hand.length); n++) {
+          const combs = getCombinations(hand, n);
+          for (const comb of combs) {
+            const combo = getCombo(comb);
+            if (combo) {
+              possiblePlays.push({ play: comb, combo: combo });
             }
           }
         }
-        if (bestPlay) break; // 가장 큰 묶음부터 찾으므로, 찾으면 바로 중단
+
+        if (possiblePlays.length > 0) {
+          // Find the WEAKEST play to lead with.
+          const weakestPlay = possiblePlays.reduce((weakest, current) => {
+            if (!weakest) return current;
+            // A lower combo value means a weaker play.
+            return getComboValue(current.combo) < getComboValue(weakest.combo) ? current : weakest;
+          });
+          bestPlay = weakestPlay.play;
+          bestCombo = weakestPlay.combo;
+        }
       }
 
-      if (bestPlay) {
+      if (bestPlay && bestCombo) {
         await this.submitCardsToBoard(bestPlay, bestCombo, cpuId);
         this.removeCpuCardsFromHand(cpuId, bestPlay);
         await this.nextTurn();
