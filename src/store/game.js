@@ -366,132 +366,50 @@ export const useGameStore = defineStore('game', {
       this.lastPlayedPlayerId = turnData.player_id
     },
     async cpuPlay(cpuId) {
-      console.log('🤖 CPU 플레이 시작:', cpuId)
-      console.log('📋 현재 게임 상태:', {
-        gameId: this.gameId,
-        currentTurnUserId: this.currentTurnUserId,
-        lastPlayedCombo: this.lastPlayedCombo,
-        cpuHands: Object.keys(this.cpuHands)
-      })
-      
-      // CPU의 패 가져오기 (로컬에서 관리)
-      const hand = this.cpuHands[cpuId] || []
-      console.log('🃏 CPU 패 확인:', {
-        cpuId,
-        handLength: hand.length,
-        hand: hand.map(c => `${c.suit} ${c.number}`)
-      })
-      
-      if (!hand || hand.length === 0) {
-        console.log('CPU 패가 없습니다. 패스합니다.')
-        await this.cpuPass(cpuId)
-        return
+      if (!this.gameId) return;
+
+      const hand = this.cpuHands[cpuId] || [];
+      if (hand.length === 0) {
+        await this.cpuPass(cpuId);
+        return;
       }
-      
-      console.log('🃏 CPU 패:', hand.map(c => `${c.suit} ${c.number}`))
-      
-      // 가능한 모든 조합 찾기 (카드 수가 많은 것 우선)
-      let bestPlay = null
-      let bestCombo = null
-      
-      console.log('🔍 유효한 조합 검색 시작...')
-      
-      // 5장부터 1장까지 역순으로 검색 (많은 카드 우선)
+
+      let bestPlay = null;
+      let bestCombo = null;
+
       for (let n = Math.min(5, hand.length); n >= 1; n--) {
-        console.log(`🔍 ${n}장 조합 검색 중...`)
-        const combs = getCombinations(hand, n)
-        console.log(`📊 ${n}장 조합 개수:`, combs.length)
-        let foundValidCombo = false
-        
+        const combs = getCombinations(hand, n);
         for (const comb of combs) {
-          const combo = getCombo(comb)
-          if (combo) {
-            console.log(`✅ 유효한 조합 발견:`, {
-              cards: comb.map(c => `${c.suit} ${c.number}`),
-              combo: combo
-            })
-          }
-          if (!combo) continue
-          
-          // 현재 보드보다 높은 조합인지 확인
-          const isValidPlay = !this.lastPlayedCombo || 
-            (combo.type === this.lastPlayedCombo.type && getComboValue(combo) > getComboValue(this.lastPlayedCombo)) || 
-            getComboRank(combo.type) > getComboRank(this.lastPlayedCombo?.type)
-          
-          console.log(`🎯 조합 유효성 검사:`, {
-            combo: combo,
-            lastPlayedCombo: this.lastPlayedCombo,
-            isValidPlay: isValidPlay
-          })
-          
+          const combo = getCombo(comb);
+          if (!combo) continue;
+
+          const isValidPlay = !this.lastPlayedCombo ||
+            (combo.type === this.lastPlayedCombo.type && getComboValue(combo) > getComboValue(this.lastPlayedCombo)) ||
+            getComboRank(combo.type) > getComboRank(this.lastPlayedCombo?.type);
+
           if (isValidPlay) {
-            // 같은 카드 수에서 가장 낮은 조합 선택
-            if (!bestPlay || 
-                (bestPlay.length === comb.length && getComboValue(combo) < getComboValue(bestCombo))) {
-              bestPlay = comb
-              bestCombo = combo
-              console.log(`🏆 새로운 최고 조합:`, {
-                cards: comb.map(c => `${c.suit} ${c.number}`),
-                combo: combo
-              })
+            if (!bestPlay || (bestPlay.length === comb.length && getComboValue(combo) < getComboValue(bestCombo))) {
+              bestPlay = comb;
+              bestCombo = combo;
             }
-            foundValidCombo = true
           }
         }
-        
-        // 이 카드 수에서 유효한 조합을 찾았다면, 더 적은 카드 수는 검색하지 않음
-        if (foundValidCombo) {
-          console.log(`✅ ${n}장 조합에서 유효한 조합을 찾았습니다. 검색 중단.`)
-          break
-        }
+        if (bestPlay) break; // 가장 큰 묶음부터 찾으므로, 찾으면 바로 중단
       }
-      
+
       if (bestPlay) {
-        console.log(`🎮 CPU 플레이 결정:`, {
-          cpuId: cpuId,
-          cards: bestPlay.map(c => `${c.suit} ${c.number}`),
-          comboType: bestCombo.type,
-          comboValue: getComboValue(bestCombo)
-        })
-        // CPU 플레이어는 DB에 저장하지 않고 로컬에서만 관리
-        console.log('💾 CPU 플레이는 DB에 저장하지 않음 (로컬 관리)')
-        
-        // 로컬 상태 업데이트
-        this.lastPlayedCards = bestPlay
-        this.lastPlayedCombo = bestCombo
-        this.lastPlayedPlayerId = cpuId
-        
-        this.removeCpuCardsFromHand(cpuId, bestPlay)
-        
-        // 턴 전환 애니메이션
-        this.turnTransitioning = true
-        setTimeout(async () => {
-          console.log('🔄 CPU 플레이 후 턴 전환')
-          await this.nextTurn()
-          this.turnTransitioning = false
-        }, 1000)
+        await this.submitCardsToBoard(bestPlay, bestCombo, cpuId);
+        this.removeCpuCardsFromHand(cpuId, bestPlay);
+        await this.nextTurn();
       } else {
-        console.log('⏭️ CPU 패스 결정:', {
-          cpuId: cpuId,
-          reason: '유효한 조합을 찾을 수 없음'
-        })
-        // 패스
-        await this.cpuPass(cpuId)
+        await this.cpuPass(cpuId);
       }
     },
+
     async cpuPass(cpuId) {
-      console.log('🤖 CPU 패스:', cpuId)
-      
-      // CPU 플레이어는 DB에 저장하지 않고 로컬에서만 턴 관리
-      console.log('💾 CPU 패스는 DB에 저장하지 않음 (로컬 턴 관리)')
-      
-      // 턴 전환 애니메이션
-      this.turnTransitioning = true
-      setTimeout(async () => {
-        console.log('🔄 CPU 패스 후 턴 전환')
-        await this.nextTurn()
-        this.turnTransitioning = false
-      }, 1000)
+      if (!this.gameId) return;
+      await this.submitCardsToBoard([], { type: 'pass' }, cpuId);
+      await this.nextTurn();
     },
     removeCpuCardsFromHand(cpuId, cards) {
       // CPU 카드는 로컬에서만 관리
@@ -595,10 +513,17 @@ export function getCombo(tiles) {
 }
 
 function getTileValue(tile) {
-  // 렉시오 규칙: 숫자 + 문양 순위 (3이 가장 낮음, 2가 가장 높음)
-  // 숫자 순위: 3=1, 4=2, ..., 2=13 (2가 가장 높음)
-  const numberRank = tile.number === 2 ? 13 : tile.number - 2
-  return numberRank * 10 + SUIT_RANKS[tile.suit]
+  // 렉시오 규칙: 3(가장 낮음) -> 4 ... -> K -> 14 -> 15 -> A -> 2(가장 높음)
+  const num = tile.number;
+  let numberRank;
+  if (num >= 3) {
+    numberRank = num - 2; // 3->1, 4->2, ..., 15->13
+  } else if (num === 1) { // Ace
+    numberRank = 14;
+  } else { // 2
+    numberRank = 15;
+  }
+  return numberRank * 10 + SUIT_RANKS[tile.suit];
 }
 
 function getNumberCounts(numbers) {

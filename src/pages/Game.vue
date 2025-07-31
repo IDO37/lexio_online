@@ -231,7 +231,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '../lib/supabase.js'
 import { useAuthStore } from '../store/auth.js'
@@ -366,6 +366,16 @@ onUnmounted(() => {
   if (gameSubscription) gameSubscription.unsubscribe()
   if (turnsSubscription) turnsSubscription.unsubscribe()
 })
+
+// CPU 턴 자동 플레이
+watch(() => gameStore.currentTurnUserId, (newTurnUserId) => {
+  if (newTurnUserId && newTurnUserId.startsWith('cpu') && isRoomOwner.value) {
+    // 1.5초 지연 후 CPU 플레이 호출
+    setTimeout(() => {
+      gameStore.cpuPlay(newTurnUserId);
+    }, 1500);
+  }
+});
 
 async function loadRoom() {
   if (!roomId.value) return
