@@ -79,6 +79,7 @@ async function createRoom() {
     progressStep.value = 1
     const { data, error } = await supabase.from('lo_rooms').insert({
       name: name.value || `Room ${Date.now()}`,
+      room_id: id,
       status: 'waiting',
       created_by: auth.user.id,
       max_players: players.value,

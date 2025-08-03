@@ -94,6 +94,7 @@ CREATE POLICY "Users can delete themselves from rooms" ON lo_room_players FOR DE
 
 ALTER TABLE lo_games ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Players can view games they are in" ON lo_games FOR SELECT USING (EXISTS (SELECT 1 FROM lo_room_players WHERE room_id = lo_games.room_id AND user_id = auth.uid()));
+CREATE POLICY "Room creators can create games" ON lo_games FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM lo_rooms WHERE id = lo_games.room_id AND created_by = auth.uid()));
 CREATE POLICY "Players can update games they are in" ON lo_games FOR UPDATE USING (EXISTS (SELECT 1 FROM lo_room_players WHERE room_id = lo_games.room_id AND user_id = auth.uid()));
 
 ALTER TABLE lo_cards ENABLE ROW LEVEL SECURITY;

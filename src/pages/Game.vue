@@ -767,207 +767,34 @@ function setupRealtimeSubscriptions() {
 }
 
 async function startGame() {
-  if (!isRoomOwner.value || !canStartGame.value) return
-  
-  // 사용자 인증 상태 확인
-  if (!auth.user?.id) {
-    console.error('사용자 인증 정보가 없습니다.')
-    error.value = '로그인이 필요합니다.'
-    return
-  }
-  
+  if (!isRoomOwner.value || !canStartGame.value) return;
+
   try {
-    console.log('게임 시작:', players.value.length, '명의 플레이어')
-    console.log('현재 사용자:', auth.user.id, auth.user.email)
-    
-    // 첫 번째 실제 플레이어 찾기 (CPU 제외)
-    const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
-    const initialTurnPlayer = firstRealPlayer?.id || players.value[0]?.id
-    
-    console.log('초기 턴 플레이어:', initialTurnPlayer)
-    
-    // 게임 생성 - 최소한의 필수 필드만 포함
-    const gameInsertData = {
-      room_id: roomId.value
-    }
-    
-    // 선택적 필드들 (테이블에 존재하는 경우에만 추가)
-    if (initialTurnPlayer) {
-      gameInsertData.current_turn_user_id = initialTurnPlayer
-    }
-    
-    if (auth.user?.id) {
-      gameInsertData.created_by = auth.user.id
-    }
-    
-    // status 필드는 기본값이 있을 수 있으므로 조건부로 추가
-    gameInsertData.status = 'playing'
-    
-    console.log('게임 생성 데이터:', JSON.stringify(gameInsertData, null, 2))
-    
-    // 단계별로 게임 생성 시도
-    let gameData = null
-    let gameError = null
-    
-    // 1단계: room_id만으로 시도
-    try {
-      console.log('1단계: room_id만으로 게임 생성 시도')
-      const { data, error } = await supabase
-        .from('lo_games')
-        .insert({ room_id: roomId.value })
-        .select()
-        .single()
-      
-      if (!error && data) {
-        gameData = data
-        console.log('1단계 성공:', gameData)
-      } else {
-        gameError = error
-        console.error('1단계 실패:', error)
-      }
-    } catch (err) {
-      gameError = err
-      console.error('1단계 예외:', err)
-    }
-    
-    // 1단계가 실패하면 2단계: 더 많은 필드로 시도
-    if (!gameData && gameError) {
-      try {
-        console.log('2단계: 추가 필드로 게임 생성 시도')
-        const { data, error } = await supabase
-          .from('lo_games')
-          .insert(gameInsertData)
-          .select()
-          .single()
-        
-        if (!error && data) {
-          gameData = data
-          console.log('2단계 성공:', gameData)
-        } else {
-          gameError = error
-          console.error('2단계 실패:', error)
-        }
-      } catch (err) {
-        gameError = err
-        console.error('2단계 예외:', err)
-      }
-    }
-    
-    if (gameError) {
-      console.error('게임 생성 오류:', gameError)
-      console.error('게임 생성 오류 상세:', {
-        code: gameError.code,
-        message: gameError.message,
-        details: gameError.details,
-        hint: gameError.hint
-      })
-      console.error('게임 생성 오류 전체 객체:', JSON.stringify(gameError, null, 2))
-      throw gameError
-    }
-    
-    console.log('게임 생성 성공:', gameData.id)
-    
-    // 게임 생성 후 추가 필드 업데이트 (lo_games 테이블 스키마에 맞게)
-    if (gameData) {
-      try {
-        const updateData = {}
-        // current_turn_user_id 컬럼이 없으므로 제거
-        // status는 이미 설정되어 있으므로 제거
-        updateData.started_at = new Date().toISOString()
-        
-        if (Object.keys(updateData).length > 0) {
-          console.log('게임 추가 필드 업데이트:', updateData)
-          const { error: updateError } = await supabase
-            .from('lo_games')
-            .update(updateData)
-            .eq('id', gameData.id)
-          
-          if (updateError) {
-            console.error('게임 업데이트 오류:', updateError)
-          } else {
-            console.log('게임 업데이트 성공')
-          }
-        }
-      } catch (updateErr) {
-        console.error('게임 업데이트 중 예외:', updateErr)
-      }
-    }
-    
-    // 카드 분배 (실제 사용자만 DB에 저장)
-    await distributeCards(gameData.id)
-    
-    // 플레이어들의 카드 수 업데이트
-    await updatePlayerHandCounts(gameData.id)
-    
-    // cloud 3을 가진 실제 플레이어 찾기 (렉시오 규칙)
-    const firstTurnPlayerId = await findPlayerWithCloud3(gameData.id)
-    
-    console.log('cloud 3을 가진 플레이어:', firstTurnPlayerId)
-    
-    // 첫 턴 플레이어 설정 (DB 업데이트 없이 로컬에서만)
-    if (firstTurnPlayerId && firstTurnPlayerId !== initialTurnPlayer) {
-      console.log('첫 턴 플레이어 변경:', initialTurnPlayer, '->', firstTurnPlayerId)
-      initialTurnPlayer = firstTurnPlayerId
-    }
-    
-    // 방 상태 업데이트
-    const { error: roomUpdateError } = await supabase
+    const { data: gameData, error: gameError } = await supabase
+      .from('lo_games')
+      .insert({ room_id: roomId.value, created_by: auth.user.id })
+      .select()
+      .single();
+
+    if (gameError) throw gameError;
+
+    await distributeCards(gameData.id);
+
+    const firstTurnPlayerId = await findPlayerWithCloud3(gameData.id);
+
+    await supabase
+      .from('lo_games')
+      .update({ current_turn_user_id: firstTurnPlayerId, status: 'playing', started_at: new Date().toISOString() })
+      .eq('id', gameData.id);
+
+    await supabase
       .from('lo_rooms')
       .update({ status: 'playing' })
-      .eq('id', roomId.value)
-    
-    if (roomUpdateError) {
-      console.error('방 상태 업데이트 오류:', roomUpdateError)
-    } else {
-      console.log('방 상태 업데이트 성공: playing')
-      // 로컬 상태도 업데이트
-      room.value.status = 'playing'
-    }
-    
-    // Pinia store에 게임 상태 설정
-    gameStore.setGameId(gameData.id)
-    gameStore.setRoomId(roomId.value)
-    gameStore.setStatus('playing')
-    
-    // 게임 store 초기화 (players 배열 설정)
-    console.log('👥 게임 초기화 전 플레이어 목록:', players.value.map(p => ({ id: p.id, email: p.email })))
-    gameStore.initializeGame(gameData, players.value, auth.user?.id)
-    
-    // 첫 턴 플레이어 설정 (initializeGame 이후에 설정)
-    const finalFirstTurnPlayer = firstTurnPlayerId || initialTurnPlayer
-    console.log('🎯 최종 첫 턴 플레이어 설정:', finalFirstTurnPlayer)
-    gameStore.setCurrentTurnUserId(finalFirstTurnPlayer)
-    
-    console.log('게임 상태 설정 완료:', {
-      gameId: gameData.id,
-      roomId: roomId.value,
-      status: 'playing',
-      currentTurnUserId: finalFirstTurnPlayer
-    })
-    
-    // 현재 사용자의 카드 로드
-    await loadMyCards(gameData.id)
-    
-    // 내 ID 설정
-    gameStore.setMyId(auth.user?.id)
-    
-    console.log('게임 시작 완료! 현재 게임 상태:', {
-      gameStoreStatus: gameStore.status,
-      roomStatus: room.value?.status,
-      myId: gameStore.myId,
-      currentTurnUserId: gameStore.currentTurnUserId,
-      myHandCount: gameStore.myHand.length,
-      playersCount: gameStore.players.length,
-      players: gameStore.players.map(p => ({ id: p.id, email: p.email }))
-    })
-    
-    // 게임 시작 후 실시간 구독 재설정
-    console.log('🔄 게임 시작 후 실시간 구독 재설정')
-    setupRealtimeSubscriptions()
-    
+      .eq('id', roomId.value);
+
   } catch (err) {
-    console.error('게임 시작 오류:', err)
-    error.value = '게임을 시작할 수 없습니다.'
+    console.error('게임 시작 오류:', err);
+    error.value = '게임을 시작할 수 없습니다: ' + err.message;
   }
 }
 
