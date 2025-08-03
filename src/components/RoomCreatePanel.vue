@@ -76,18 +76,22 @@ async function waitFor(conditionFn, maxTries = 10, delay = 300) {
 }
 
 async function createRoom() {
-  if (!auth.user) {
-    alert('로그인 후 방을 생성할 수 있습니다.')
-    return
+  if (!auth.user || !auth.user.id) {
+    alert('로그인 후 방을 생성할 수 있습니다.');
+    return;
   }
+  
+  console.log('현재 로그인 사용자:', auth.user);
+  console.log('사용자 ID:', auth.user?.id);
+  console.log('Creating room for user:', auth.user.id);
 
-  loading.value = true
-  creating.value = true
-  progressStep.value = 0
+  loading.value = true;
+  creating.value = true;
+  progressStep.value = 0;
 
   try {
-    // 1단계: 방 생성
-    progressStep.value = 1
+    // Step 1: Insert lo_rooms
+    progressStep.value = 1;
     const { data, error } = await supabase.from('lo_rooms').insert({
       name: name.value || `Room ${Date.now()}`,
       status: 'waiting',
@@ -96,62 +100,67 @@ async function createRoom() {
       is_public: !usePassword.value,
       password: usePassword.value ? password.value : null,
       players: 1
-    }).select()
+    }).select();
 
-    if (error || !data || !data[0]) {
-      throw new Error(error?.message || '방 생성 실패')
+    if (error) {
+      console.error('lo_rooms 삽입 오류:', error);
+      throw new Error(error.message || '방 생성 실패');
     }
 
-    room.value = data[0]
+    const newRoom = data?.[0];
+    if (!newRoom) throw new Error('방 정보 응답 없음');
+    room.value = newRoom;
 
-    // 2단계: 플레이어 추가
-    progressStep.value = 2
+    // Step 2: Insert lo_room_players
+    progressStep.value = 2;
     const { error: joinError } = await supabase.from('lo_room_players').insert({
-      room_id: room.value.id,
+      room_id: newRoom.id,
       user_id: auth.user.id,
       joined_at: new Date().toISOString()
-    })
+    });
 
     if (joinError) {
-      throw new Error('플레이어 추가 실패: ' + joinError.message)
+      console.error('lo_room_players 삽입 오류:', joinError);
+      throw new Error('플레이어 추가 실패: ' + joinError.message);
     }
 
-    // 3단계: 방 생성 확인
-    progressStep.value = 3
+    // Step 3: Validation
+    progressStep.value = 3;
+
     const roomConfirmed = await waitFor(async () => {
       const { data: confirmData } = await supabase
         .from('lo_rooms')
         .select('id')
-        .eq('id', room.value.id)
-        .single()
-      return !!confirmData
-    })
+        .eq('id', newRoom.id)
+        .single();
+      return !!confirmData;
+    });
 
     const playerConfirmed = await waitFor(async () => {
       const { data: playerData } = await supabase
         .from('lo_room_players')
         .select('user_id')
-        .eq('room_id', room.value.id)
+        .eq('room_id', newRoom.id)
         .eq('user_id', auth.user.id)
-        .single()
-      return !!playerData
-    })
+        .single();
+      return !!playerData;
+    });
 
     if (!roomConfirmed || !playerConfirmed) {
-      throw new Error('방 또는 플레이어 정보 확인 실패')
+      throw new Error('방 또는 플레이어 정보 확인 실패');
     }
 
-    // 게임방으로 이동
+    // 이동
     setTimeout(() => {
-      window.location.href = `/game/${room.value.id}`
-    }, 2000)
+      window.location.href = `/game/${newRoom.id}`;
+    }, 1500);
   } catch (err) {
-    console.error('방 생성 중 오류:', err)
-    alert('오류 발생: ' + err.message)
-    progressStep.value = 0
-    creating.value = false
+    console.error('방 생성 중 오류:', err);
+    alert('오류 발생: ' + err.message);
+    progressStep.value = 0;
+    creating.value = false;
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 </script>
