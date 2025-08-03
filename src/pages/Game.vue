@@ -963,6 +963,8 @@ async function distributeCards(gameId) {
   }
 
   const tiles = suits.flatMap(suit => numbers.map(number => ({ suit, number })));
+
+  // 카드 섞기
   for (let i = tiles.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
@@ -975,23 +977,27 @@ async function distributeCards(gameId) {
   const cardsToInsert = [];
   const cpuHands = Object.fromEntries(cpuPlayerIds.map(id => [id, []]));
 
+  // 카드 분배
   for (let i = 0; i < totalCards; i++) {
     const playerId = allPlayerIds[i % playerCount];
     const tile = tiles[i];
 
+    const card = {
+      game_id: gameId,
+      owner_id: playerId,
+      suit: tile.suit,
+      rank: tile.number.toString(),
+      in_hand: true,
+    };
+
     if (realPlayerIds.includes(playerId)) {
-      cardsToInsert.push({
-        game_id: gameId,
-        owner_id: playerId,
-        suit: tile.suit,
-        rank: tile.number.toString(),
-        in_hand: true,
-      });
-    } else if (cpuPlayerIds.includes(playerId)) {
-      cpuHands[playerId].push(tile);
+      cardsToInsert.push(card);
+    } else {
+      cpuHands[playerId].push(tile); // 메모리에만 저장
     }
   }
 
+  // 실제 유저 카드 DB 저장
   if (cardsToInsert.length > 0) {
     const { error } = await supabase.from('lo_cards').insert(cardsToInsert);
     if (error) {
@@ -1000,12 +1006,31 @@ async function distributeCards(gameId) {
     }
   }
 
+  // CPU 카드 메모리 + DB 저장
   for (const cpuId in cpuHands) {
-    gameStore.setCpuHand(cpuId, cpuHands[cpuId]);
+    const hand = cpuHands[cpuId];
+    gameStore.setCpuHand(cpuId, hand); // 메모리 저장
+
+    const cpuCards = hand.map(tile => ({
+      game_id: gameId,
+      owner_id: cpuId,
+      suit: tile.suit,
+      rank: tile.number.toString(),
+      in_hand: true,
+    }));
+
+    if (cpuCards.length > 0) {
+      const { error: cpuError } = await supabase.from('lo_cards').insert(cpuCards);
+      if (cpuError) {
+        console.error(`CPU(${cpuId}) 카드 DB 저장 오류:`, cpuError);
+        throw cpuError;
+      }
+    }
   }
 
   console.log(`${playerCount}인 게임: ${totalCards}장 분배 완료`);
 }
+
 
 async function leaveRoom() {
   if (!auth.user || !roomId.value) return
