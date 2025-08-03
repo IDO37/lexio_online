@@ -267,11 +267,13 @@ export const useGameStore = defineStore('game', {
       // 턴을 로컬에서 즉시 변경
       this.currentTurnUserId = nextPlayerId;
 
-      // 턴 변경 정보를 DB에 기록 (다른 플레이어들에게 전파용)
-      try {
-        await supabase.from('lo_games').update({ current_turn_user_id: nextPlayerId }).eq('id', this.gameId);
-      } catch (error) {
-        console.error('DB 턴 업데이트 오류:', error);
+      // CPU 턴이 아닐 경우에만 DB 업데이트
+      if (!isCpuPlayer(nextPlayerId)) {
+        try {
+          await supabase.from('lo_games').update({ current_turn_user_id: nextPlayerId }).eq('id', this.gameId);
+        } catch (error) {
+          console.error('DB 턴 업데이트 오류:', error);
+        }
       }
     },
     
