@@ -142,52 +142,54 @@ onUnmounted(() => {
 
 async function joinRoom(room) {
   if (!isAuthed.value) {
-    alert('로그인 후 입장할 수 있습니다.')
-    return
+    alert('로그인 후 입장할 수 있습니다.');
+    return;
   }
-  
-  // 비밀번호 방인 경우 비밀번호 확인
+
+  // 비밀번호 확인
   if (!room.is_public && room.password) {
-    const password = prompt('비밀번호를 입력하세요:')
-    if (!password) return
-    
-    if (password !== room.password) {
-      alert('비밀번호가 올바르지 않습니다.')
-      return
+    const password = prompt('비밀번호를 입력하세요:');
+    if (!password || password !== room.password) {
+      alert('비밀번호가 올바르지 않습니다.');
+      return;
     }
   }
-  
+
   try {
-    // 방에 플레이어 추가
+    // lo_room_players 테이블에 참여 정보 삽입
     const { error: joinError } = await supabase
       .from('lo_room_players')
       .insert({
         room_id: room.id,
         user_id: auth.user.id,
-        joined_at: new Date().toISOString()
-      })
-    
-    if (joinError) {
-      // 이미 입장한 경우 무시
-      if (joinError.code !== '23505') { // unique_violation
-        alert('방 입장 실패: ' + joinError.message)
-        return
-      }
+        joined_at: new Date().toISOString(),
+      });
+
+    if (joinError && joinError.code !== '23505') {
+      alert('방 입장 실패: ' + joinError.message);
+      return;
     }
-    
-    // 방의 플레이어 수 업데이트
-    await supabase
+
+    // 방 참여 인원 증가
+    const currentPlayers = Number(room.players || 0);
+    const { error: updateError } = await supabase
       .from('lo_rooms')
-      .update({ players: room.players + 1 })
-      .eq('id', room.id)
-    
-    // 게임 방으로 이동
-    router.push(`/game/${room.id}`)
-    
+      .update({ players: currentPlayers + 1 })
+      .eq('id', room.id);
+
+    if (updateError) {
+      alert('플레이어 수 업데이트 실패: ' + updateError.message);
+      return;
+    }
+
+    // 게임 화면으로 이동
+    router.push(`/game/${room.id}`);
   } catch (err) {
-    alert('방 입장 중 오류가 발생했습니다.')
+    console.error('방 입장 중 오류:', err);
+    alert('방 입장 중 오류가 발생했습니다.');
   }
 }
+
 </script>
 
 <style scoped>
