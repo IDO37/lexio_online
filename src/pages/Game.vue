@@ -948,9 +948,9 @@ async function loadMyCards(gameId) {
 
 // CPU용 UUID 생성 함수 (UUID 포맷 준수)
 function toCpuUUID(cpuId) {
-  const numberPart = cpuId.replace(/^cpu/, '');        // "cpu1" → "1"
-  const hexPart = parseInt(numberPart, 10).toString(16).padStart(12, '0'); // 1 → "000000000001"
-  return `00000000-0000-0000-0000-c${hexPart}`;         // → "00000000-0000-0000-0000-c00000000001"
+  const numberPart = cpuId.replace(/^cpu/, '');
+  const hexPart = parseInt(numberPart, 10).toString(16).padStart(12, '0');  // → "000000000001"
+  return `00000000-0000-0000-0000-${hexPart}`;  // ✅ 16진수만 포함된 유효한 UUID
 }
 
 async function distributeCards(gameId) {
