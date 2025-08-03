@@ -946,8 +946,11 @@ async function loadMyCards(gameId) {
   }
 }
 
+// CPU용 UUID 생성 함수 (UUID 포맷 준수)
 function toCpuUUID(cpuId) {
-  return `00000000-0000-0000-0000-${cpuId.padStart(12, '0')}`;
+  const numberPart = cpuId.replace(/^cpu/, '');        // "cpu1" → "1"
+  const hexPart = parseInt(numberPart, 10).toString(16).padStart(12, '0'); // 1 → "000000000001"
+  return `00000000-0000-0000-0000-c${hexPart}`;         // → "00000000-0000-0000-0000-c00000000001"
 }
 
 async function distributeCards(gameId) {
@@ -961,7 +964,7 @@ async function distributeCards(gameId) {
   } else if (playerCount === 5) {
     numbers = Array.from({ length: 15 }, (_, i) => i + 1);
     totalCards = 60;
-  } else { // 기본 4인
+  } else {
     numbers = Array.from({ length: 13 }, (_, i) => i + 1);
     totalCards = 52;
   }
@@ -995,10 +998,10 @@ async function distributeCards(gameId) {
       card.owner_id = playerId;
       cardsToInsert.push(card);
     } else if (cpuPlayerIds.includes(playerId)) {
-      const uuid = toCpuUUID(playerId); // CPU용 UUID
+      const uuid = toCpuUUID(playerId);  // 올바른 UUID 변환
       card.owner_id = uuid;
       cardsToInsert.push(card);
-      cpuHands[playerId].push(tile); // CPU 로컬 저장용
+      cpuHands[playerId].push(tile);     // CPU 로컬 저장용
     }
   }
 
@@ -1014,8 +1017,6 @@ async function distributeCards(gameId) {
 
   console.log(`${playerCount}인 게임: ${totalCards}장 분배 완료`);
 }
-
-
 
 async function leaveRoom() {
   if (!auth.user || !roomId.value) return
