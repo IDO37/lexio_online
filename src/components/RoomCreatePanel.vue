@@ -75,27 +75,24 @@ async function waitFor(conditionFn, maxTries = 10, delay = 300) {
   return false
 }
 
-async function createRoom() {
-  console.log('[createRoom] 시작');
+async function createRoom(){
   if (!auth.user || !auth.user.id) {
-    console.error('[createRoom] 오류: 사용자가 로그인하지 않았습니다.');
     alert('로그인 후 방을 생성할 수 있습니다.');
     return;
   }
   
-  console.log('[createRoom] 현재 로그인 사용자:', auth.user);
-  console.log('[createRoom] 사용자 ID:', auth.user?.id);
+  console.log('현재 로그인 사용자:', auth.user);
+  console.log('사용자 ID:', auth.user?.id);
+  console.log('Creating room for user:', auth.user.id);
 
   loading.value = true;
   creating.value = true;
   progressStep.value = 0;
-  console.log('[createRoom] 로딩 및 생성 상태 활성화');
 
   try {
     // Step 1: Insert lo_rooms
     progressStep.value = 1;
-    console.log('[createRoom] Step 1: lo_rooms에 방 삽입 시작');
-    const roomData = {
+    const { data, error } = await supabase.from('lo_rooms').insert({
       name: name.value || `Room ${Date.now()}`,
       status: 'waiting',
       created_by: auth.user.id,
@@ -103,46 +100,32 @@ async function createRoom() {
       is_public: !usePassword.value,
       password: usePassword.value ? password.value : null,
       players: 1
-    };
-    console.log('[createRoom] 삽입할 방 데이터:', roomData);
-
-    const { data, error } = await supabase.from('lo_rooms').insert(roomData).select();
+    }).select();
 
     if (error) {
-      console.error('[createRoom] lo_rooms 삽입 오류:', error);
+      console.error('lo_rooms 삽입 오류:', error);
       throw new Error(error.message || '방 생성 실패');
     }
-    console.log('[createRoom] lo_rooms 삽입 성공:', data);
 
     const newRoom = data?.[0];
-    if (!newRoom) {
-      console.error('[createRoom] 오류: 방 정보 응답 없음');
-      throw new Error('방 정보 응답 없음');
-    }
+    if (!newRoom) throw new Error('방 정보 응답 없음');
     room.value = newRoom;
-    console.log('[createRoom] 생성된 방 정보:', newRoom);
 
     // Step 2: Insert lo_room_players
     progressStep.value = 2;
-    console.log('[createRoom] Step 2: lo_room_players에 플레이어 삽입 시작');
-    const playerData = {
+    const { error: joinError } = await supabase.from('lo_room_players').insert({
       room_id: newRoom.id,
       user_id: auth.user.id,
       joined_at: new Date().toISOString()
-    };
-    console.log('[createRoom] 삽입할 플레이어 데이터:', playerData);
-
-    const { error: joinError } = await supabase.from('lo_room_players').insert(playerData);
+    });
 
     if (joinError) {
-      console.error('[createRoom] lo_room_players 삽입 오류:', joinError);
+      console.error('lo_room_players 삽입 오류:', joinError);
       throw new Error('플레이어 추가 실패: ' + joinError.message);
     }
-    console.log('[createRoom] lo_room_players 삽입 성공');
 
     // Step 3: Validation
     progressStep.value = 3;
-    console.log('[createRoom] Step 3: 유효성 검사 시작');
 
     const roomConfirmed = await waitFor(async () => {
       const { data: confirmData } = await supabase
@@ -152,7 +135,6 @@ async function createRoom() {
         .single();
       return !!confirmData;
     });
-    console.log('[createRoom] 방 생성 확인:', roomConfirmed);
 
     const playerConfirmed = await waitFor(async () => {
       const { data: playerData } = await supabase
@@ -163,29 +145,22 @@ async function createRoom() {
         .single();
       return !!playerData;
     });
-    console.log('[createRoom] 플레이어 추가 확인:', playerConfirmed);
 
     if (!roomConfirmed || !playerConfirmed) {
-      console.error('[createRoom] 오류: 방 또는 플레이어 정보 확인 실패');
       throw new Error('방 또는 플레이어 정보 확인 실패');
     }
-    console.log('[createRoom] 유효성 검사 성공');
 
     // 이동
-    console.log(`[createRoom] 게임 방으로 이동 준비: /game/${newRoom.id}`);
     setTimeout(() => {
-      console.log(`[createRoom] 게임 방으로 이동 실행: /game/${newRoom.id}`);
       window.location.href = `/game/${newRoom.id}`;
     }, 1500);
-
   } catch (err) {
-    console.error('[createRoom] 방 생성 프로세스 중 심각한 오류 발생:', err);
+    console.error('방 생성 중 오류:', err);
     alert('오류 발생: ' + err.message);
     progressStep.value = 0;
     creating.value = false;
   } finally {
     loading.value = false;
-    console.log('[createRoom] 종료. 로딩 상태 비활성화.');
   }
 }
 </script>
