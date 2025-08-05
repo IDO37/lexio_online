@@ -1,7 +1,16 @@
 -- 렉시오 온라인 게임을 위한 Supabase 스키마
+-- 기존 테이블과 데이터를 모두 삭제하고 재생성합니다.
+
+-- 테이블 삭제 (의존성 순서에 따라 역순으로)
+DROP TABLE IF EXISTS lo_stats CASCADE;
+DROP TABLE IF EXISTS lo_game_turns CASCADE;
+DROP TABLE IF EXISTS lo_cards CASCADE;
+DROP TABLE IF EXISTS lo_games CASCADE;
+DROP TABLE IF EXISTS lo_room_players CASCADE;
+DROP TABLE IF EXISTS lo_rooms CASCADE;
 
 -- 1. lo_rooms: 게임 방 목록
-CREATE TABLE IF NOT EXISTS lo_rooms (
+CREATE TABLE lo_rooms (
   id BIGSERIAL PRIMARY KEY,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   name TEXT NOT NULL,
@@ -15,7 +24,7 @@ CREATE TABLE IF NOT EXISTS lo_rooms (
 COMMENT ON TABLE lo_rooms IS '게임 대기방 목록';
 
 -- 2. lo_room_players: 방에 참여한 플레이어
-CREATE TABLE IF NOT EXISTS lo_room_players (
+CREATE TABLE lo_room_players (
   id BIGSERIAL PRIMARY KEY,
   room_id BIGINT REFERENCES lo_rooms(id) ON DELETE CASCADE,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -25,7 +34,7 @@ CREATE TABLE IF NOT EXISTS lo_room_players (
 COMMENT ON TABLE lo_room_players IS '각 방에 참여한 플레이어 목록';
 
 -- 3. lo_games: 진행된 게임 정보
-CREATE TABLE IF NOT EXISTS lo_games (
+CREATE TABLE lo_games (
   id BIGSERIAL PRIMARY KEY,
   room_id BIGINT REFERENCES lo_rooms(id) ON DELETE CASCADE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -39,7 +48,7 @@ CREATE TABLE IF NOT EXISTS lo_games (
 COMMENT ON TABLE lo_games IS '실제 게임 진행 정보';
 
 -- 4. lo_cards: 게임에서 사용되는 카드
-CREATE TABLE IF NOT EXISTS lo_cards (
+CREATE TABLE lo_cards (
   id BIGSERIAL PRIMARY KEY,
   game_id BIGINT REFERENCES lo_games(id) ON DELETE CASCADE,
   owner_id UUID, -- CPU 플레이어의 경우 NULL이 될 수 있음
@@ -50,7 +59,7 @@ CREATE TABLE IF NOT EXISTS lo_cards (
 COMMENT ON TABLE lo_cards IS '게임별로 분배된 카드 정보';
 
 -- 5. lo_game_turns: 게임 턴 기록
-CREATE TABLE IF NOT EXISTS lo_game_turns (
+CREATE TABLE lo_game_turns (
   id BIGSERIAL PRIMARY KEY,
   game_id BIGINT REFERENCES lo_games(id) ON DELETE CASCADE,
   player_id UUID,
@@ -64,7 +73,7 @@ CREATE TABLE IF NOT EXISTS lo_game_turns (
 COMMENT ON TABLE lo_game_turns IS '게임의 각 턴 진행 기록';
 
 -- 6. lo_stats: 유저별 전적
-CREATE TABLE IF NOT EXISTS lo_stats (
+CREATE TABLE lo_stats (
   user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   wins INTEGER DEFAULT 0,
   losses INTEGER DEFAULT 0,
@@ -86,25 +95,32 @@ CREATE POLICY "Room creators can delete their rooms" ON lo_rooms FOR DELETE USIN
 
 ALTER TABLE lo_room_players ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view room players" ON lo_room_players;
-CREATE POLICY "Users can view room players" ON lo_room_players FOR SELECT USING (true);
+CREATE POLICY "Users can view room players" ON lo_room_players FOR SELECT USING (EXISTS (SELECT 1 FROM lo_room_players rp WHERE rp.room_id = lo_room_players.room_id AND rp.user_id = auth.uid()));
 DROP POLICY IF EXISTS "Users can insert themselves into rooms" ON lo_room_players;
 CREATE POLICY "Users can insert themselves into rooms" ON lo_room_players FOR INSERT WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "Users can delete themselves from rooms" ON lo_room_players;
 CREATE POLICY "Users can delete themselves from rooms" ON lo_room_players FOR DELETE USING (auth.uid() = user_id);
 
 ALTER TABLE lo_games ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Players can view games they are in" ON lo_games;
 CREATE POLICY "Players can view games they are in" ON lo_games FOR SELECT USING (EXISTS (SELECT 1 FROM lo_room_players WHERE room_id = lo_games.room_id AND user_id = auth.uid()));
+DROP POLICY IF EXISTS "Room creators can create games" ON lo_games;
 CREATE POLICY "Room creators can create games" ON lo_games FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM lo_rooms WHERE id = lo_games.room_id AND created_by = auth.uid()));
+DROP POLICY IF EXISTS "Players can update games they are in" ON lo_games;
 CREATE POLICY "Players can update games they are in" ON lo_games FOR UPDATE USING (EXISTS (SELECT 1 FROM lo_room_players WHERE room_id = lo_games.room_id AND user_id = auth.uid()));
 
 ALTER TABLE lo_cards ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Players can view their own cards" ON lo_cards;
 CREATE POLICY "Players can view their own cards" ON lo_cards FOR SELECT USING (owner_id = auth.uid());
 
 ALTER TABLE lo_game_turns ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Players can view game turns" ON lo_game_turns;
 CREATE POLICY "Players can view game turns" ON lo_game_turns FOR SELECT USING (EXISTS (SELECT 1 FROM lo_games WHERE id = lo_game_turns.game_id));
 
 ALTER TABLE lo_stats ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can view all stats" ON lo_stats;
 CREATE POLICY "Users can view all stats" ON lo_stats FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users can manage their own stats" ON lo_stats;
 CREATE POLICY "Users can manage their own stats" ON lo_stats FOR ALL USING (auth.uid() = user_id);
 
 -- RPC 함수: 랭킹 조회
