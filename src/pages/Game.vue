@@ -810,6 +810,14 @@ async function ensureParticipants(roomId, playerIds /* ['<user-uuid>', 'cpu1', .
 
 
 async function startGame() {
+  console.log('[UI] show start button?', {
+  roomStatus: room.value?.status,
+  isRoomOwner: isRoomOwner.value,
+  playersLen: players.value.length,
+  maxPlayers: room.value?.max_players,
+  canStartGame: canStartGame.value,
+  players: players.value.map(p=>p.id)
+  })
   if (!isRoomOwner.value || !canStartGame.value) return;
 
   try {
