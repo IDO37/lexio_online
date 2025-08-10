@@ -916,7 +916,6 @@ function resubscribeTurns(gameId) {
     .subscribe();
 }
 
-
 async function kickPlayer(playerId) {
   // 방장이 아니거나 자신을 추방하려는 경우
   if (!isRoomOwner.value || playerId === auth.user?.id) {
