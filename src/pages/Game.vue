@@ -555,60 +555,59 @@ async function loadGameData() {
 }
 
 async function loadMyHand(gameId) {
-  const { data, error: err } = await supabase
+  const { data, error } = await supabase
     .from('lo_cards')
-    .select('*')
+    .select('suit, rank, in_hand')        // 필요한 칼럼만
     .eq('game_id', gameId)
-    .eq('owner_id', auth.user?.id)
-    .eq('in_hand', true)
-  
-  if (!err && data) {
-    gameStore.setMyHand(data)
+    .eq('in_hand', true);                 // ✅ owner_id 조건 제거 (RLS가 내 카드만 반환)
+
+  if (error) {
+    console.error('내 카드 로드 오류:', error);
+    return;
   }
+
+  const myCards = (data || []).map(c => ({
+    suit: c.suit,
+    number: parseInt(c.rank, 10),
+    rank: c.rank,
+  })).sort((a, b) => {
+    const na = a.number, nb = b.number;
+    if (na !== nb) return na - nb;
+    const order = { cloud: 1, star: 2, moon: 3, sun: 4 };
+    return order[a.suit] - order[b.suit];
+  });
+
+  gameStore.setMyHand(myCards);
 }
 
+
 async function updatePlayerHandCounts(gameId) {
-  console.log('🃏 플레이어 카드 수 업데이트 시작:', gameId)
-  
-  const { data, error: err } = await supabase
+  const { data, error } = await supabase
     .from('lo_cards')
-    .select('owner_id, in_hand')
+    .select('owner_id, in_hand, participants:owner_id ( user_id, cpu_tag )')
     .eq('game_id', gameId)
-    .eq('in_hand', true)
-  
-  console.log('📊 DB에서 가져온 카드 데이터:', data)
-  console.log('❌ DB 오류:', err)
-  
-  if (!err && data) {
-    const handCounts = data.reduce((counts, card) => {
-      counts[card.owner_id] = (counts[card.owner_id] || 0) + 1
-      return counts
-    }, {})
-    
-    console.log('📈 실제 플레이어 카드 수:', handCounts)
-    
-    // 플레이어들의 카드 수 업데이트
-    players.value = players.value.map(player => {
-      let handCount = handCounts[player.id] || 0
-      
-      // CPU 플레이어인 경우 gameStore에서 카드 수 가져오기
-      if (player.id.startsWith('cpu')) {
-        const cpuCards = gameStore.cpuHands[player.id] || []
-        handCount = cpuCards.length
-        console.log(`🤖 CPU ${player.id} 카드 수:`, handCount)
-      }
-      
-      console.log(`👤 ${player.email} (${player.id}) 카드 수:`, handCount)
-      
-      return {
-        ...player,
-        handCount: handCount
-      }
-    })
-    
-    console.log('✅ 업데이트된 플레이어 목록:', players.value.map(p => ({ name: p.email, handCount: p.handCount })))
+    .eq('in_hand', true);
+
+  if (error) {
+    console.error('플레이어 카드 수 로드 오류:', error);
+    return;
   }
+
+  // user_id(실유저) 또는 cpu_tag(CPU)로 집계
+  const counts = {};
+  for (const row of (data || [])) {
+    const key = row.participants?.cpu_tag || row.participants?.user_id;
+    if (!key) continue;
+    counts[key] = (counts[key] || 0) + 1;
+  }
+
+  // players.value의 id(유저 uuid or 'cpuN')와 매칭
+  players.value = players.value.map(p => ({
+    ...p,
+    handCount: counts[p.id] || 0,
+  }));
 }
+
 
 async function loadLastTurn(gameId) {
   const { data, error: err } = await supabase
@@ -768,27 +767,47 @@ function setupRealtimeSubscriptions() {
 
 // 참가자 레코드를 방에 맞춰 생성/업서트하고, 매핑을 돌려줌
 async function ensureParticipants(roomId, playerIds /* ['<user-uuid>', 'cpu1', ...] */) {
-  const rows = playerIds.map(id => {
-    if (id.startsWith('cpu')) return { room_id: roomId, cpu_tag: id };
-    return { room_id: roomId, user_id: id };
-  });
+  const userRows = playerIds
+    .filter(id => !id.startsWith('cpu'))
+    .map(id => ({ room_id: roomId, user_id: id }));
 
-  // 중복 무시 업서트
-  const { data, error } = await supabase
+  const cpuRows = playerIds
+    .filter(id => id.startsWith('cpu'))
+    .map(id => ({ room_id: roomId, cpu_tag: id }));
+
+  // 1) 유저용 업서트 (room_id,user_id)
+  if (userRows.length) {
+    const { error } = await supabase
+      .from('lo_participants')
+      .upsert(userRows, { onConflict: 'room_id,user_id' })
+      .select('id'); // 선택적
+    if (error) throw error;
+  }
+
+  // 2) CPU용 업서트 (room_id,cpu_tag)
+  if (cpuRows.length) {
+    const { error } = await supabase
+      .from('lo_participants')
+      .upsert(cpuRows, { onConflict: 'room_id,cpu_tag' })
+      .select('id'); // 선택적
+    if (error) throw error;
+  }
+
+  // 3) 매핑 조회: 방의 모든 participants 한 번에 가져와서 map 구성
+  const { data, error: qErr } = await supabase
     .from('lo_participants')
-    .upsert(rows, { onConflict: 'room_id,user_id,cpu_tag' })
-    .select('*');
+    .select('id, user_id, cpu_tag')
+    .eq('room_id', roomId);
+  if (qErr) throw qErr;
 
-  if (error) throw error;
-
-  // 매핑: 사용자ID/CPU태그 → participant.id
   const map = {};
-  for (const p of data) {
+  for (const p of data || []) {
     if (p.user_id) map[p.user_id] = p.id;
     if (p.cpu_tag) map[p.cpu_tag] = p.id;
   }
   return map;
 }
+
 
 async function startGame() {
   if (!isRoomOwner.value || !canStartGame.value) return;
