@@ -810,47 +810,53 @@ async function ensureParticipants(roomId, playerIds /* ['<user-uuid>', 'cpu1', .
 
 
 async function startGame() {
-  console.log('[UI] show start button?', {
-  roomStatus: room.value?.status,
-  isRoomOwner: isRoomOwner.value,
-  playersLen: players.value.length,
-  maxPlayers: room.value?.max_players,
-  canStartGame: canStartGame.value,
-  players: players.value.map(p=>p.id)
-  })
-  if (!isRoomOwner.value || !canStartGame.value) return;
+  if (!isRoomOwner.value || !canStartGame.value) {
+    console.warn('[startGame] blocked', {isRoomOwner: isRoomOwner.value, canStartGame: canStartGame.value});
+    return;
+  }
 
   try {
+    console.log('[startGame] begin', { roomId: roomId.value, players: players.value.map(p=>p.id) });
+
+    // 1) 게임 생성
     const { data: gameData, error: gameError } = await supabase
       .from('lo_games')
-      .insert({ room_id: roomId.value, created_by: auth.user.id })
+      .insert({ room_id: roomId.value, created_by: auth.user.id, status: 'playing' })
       .select()
       .single();
+    if (gameError || !gameData) throw new Error('[lo_games.insert] ' + (gameError?.message || 'no data'));
+    console.log('[startGame] game created', gameData);
 
-    if (gameError) throw gameError;
-
-    // 2) 참가자 확보 (실유저 + CPU)
-    const clientIds = players.value.map(p => p.id); // ['user-uuid', 'cpu1', ...]
+    // 2) 참가자 upsert (유저+CPU)
+    const clientIds = players.value.map(p => p.id);
     const participantIdMap = await ensureParticipants(roomId.value, clientIds);
-    
-    // 3) 분배 시 owner_id = participantIdMap[clientId]
+    console.log('[startGame] participants mapped', participantIdMap);
+
+    // 3) 카드 분배 (owner_id = participant.id)
     await distributeCards(gameData.id, participantIdMap);
+    console.log('[startGame] cards distributed');
 
-    const firstTurnParticipantId  = await findPlayerWithCloud3(gameData.id);
+    // 4) 첫 턴 설정 (owner_id=participants.id 반환해야 함)
+    const firstTurnParticipantId = await findPlayerWithCloud3(gameData.id);
+    if (!firstTurnParticipantId) throw new Error('[findPlayerWithCloud3] returned null');
 
-    await supabase
+    const { error: updateErr } = await supabase
       .from('lo_games')
-      .update({ current_turn_user_id: firstTurnParticipantId, status: 'playing', started_at: new Date().toISOString() })
+      .update({ current_turn_user_id: firstTurnParticipantId, started_at: new Date().toISOString() })
       .eq('id', gameData.id);
+    if (updateErr) throw new Error('[lo_games.update] ' + updateErr.message);
+    console.log('[startGame] first turn set', firstTurnParticipantId);
 
-    await supabase
+    // 5) 방 상태 업데이트
+    const { error: roomErr } = await supabase
       .from('lo_rooms')
       .update({ status: 'playing' })
       .eq('id', roomId.value);
+    if (roomErr) throw new Error('[lo_rooms.update] ' + roomErr.message);
 
   } catch (err) {
-    console.error('게임 시작 오류:', err);
-    error.value = '게임을 시작할 수 없습니다: ' + err.message;
+    console.error('[startGame] FAILED:', err);
+    error.value = '게임을 시작할 수 없습니다: ' + (err?.message || String(err));
   }
 }
 
