@@ -59,11 +59,11 @@
             <button
               v-if="room.status === 'waiting' && isRoomOwner"
               @click="startGame"
-              :disabled="!canStartGame || dealing"
+              :disabled="!canStartGame"
               class="bg-highlight-red text-white font-semibold rounded-lg px-4 py-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              :class="canStartGame && !dealing ? 'hover:bg-highlight-red-dark' : ''"
+              :class="canStartGame ? 'hover:bg-highlight-red-dark' : ''"
             >
-              {{ dealing ? '분배중...' : '게임 시작' }}
+              게임 시작
             </button>
             <button
               @click="leaveRoom"
@@ -224,7 +224,7 @@
               </div>
             </div>
           </div>
-        </div> <!-- /대기실 -->
+        </div>
       </div>
     </div>
   </div>
@@ -250,21 +250,22 @@ const gameStore = useGameStore()
 const roomId = computed(() => route.params.roomId)
 const search = ref('')
 
-// 상태
+// 게임 방 관련 상태
 const room = ref(null)
 const players = ref([])
 const loading = ref(false)
 const error = ref('')
-const dealing = ref(false) // ✅ 중복 분배 방지용 플래그
 
-// 실시간 구독 핸들
+// 실시간 구독
 let roomSubscription = null
 let playersSubscription = null
 let gameSubscription = null
 let turnsSubscription = null
 
 // 계산된 속성들
-const isRoomOwner = computed(() => room.value?.created_by === auth.user?.id)
+const isRoomOwner = computed(() => {
+  return room.value?.created_by === auth.user?.id
+})
 
 const gamePlayers = computed(() => {
   return players.value.map(player => ({
@@ -273,7 +274,7 @@ const gamePlayers = computed(() => {
     handCount: player.handCount || 0,
     isTurn: gameStore.currentTurnUserId === player.id,
     isMe: player.id === auth.user?.id,
-    isOnline: true
+    isOnline: true // 실제로는 온라인 상태를 추적해야 함
   }))
 })
 
@@ -287,30 +288,48 @@ const totalRemainingCards = computed(() => {
   return gamePlayers.value.reduce((total, player) => total + player.handCount, 0)
 })
 
-const isCpuPlayer = (playerId) => typeof playerId === 'string' && playerId.startsWith('cpu')
+// CPU 플레이어 관련 computed
+const isCpuPlayer = (playerId) => {
+  return typeof playerId === 'string' && playerId.startsWith('cpu')
+}
 
-const realPlayerCount = computed(() => players.value.filter(p => !isCpuPlayer(p.id)).length)
-const cpuPlayerCount  = computed(() => players.value.filter(p =>  isCpuPlayer(p.id)).length)
-const hasCpuPlayers   = computed(() => cpuPlayerCount.value > 0)
+const realPlayerCount = computed(() => {
+  return players.value.filter(p => !isCpuPlayer(p.id)).length
+})
 
-const canStartGame = computed(() => players.value.length >= (room.value?.max_players || 4))
+const cpuPlayerCount = computed(() => {
+  return players.value.filter(p => isCpuPlayer(p.id)).length
+})
 
-const gameStatusDebug = computed(() => ({
-  roomStatus: room.value?.status,
-  gameStoreStatus: gameStore.status,
-  gameId: gameStore.gameId,
-  roomId: gameStore.roomId,
-  currentTurnUserId: gameStore.currentTurnUserId,
-  myId: gameStore.myId,
-  myHandCount: gameStore.myHand.length,
-  isMyTurn: gameStore.isMyTurn,
-  playersCount: gameStore.players.length,
-  players: gameStore.players.map(p => ({ id: p.id, name: p.name || p.email })),
-  gamePlayersCount: players.value.length,
-  currentPlayerName: players.value.find(p => p.id === gameStore.currentTurnUserId)?.name || 
-                     players.value.find(p => p.id === gameStore.currentTurnUserId)?.email || 'Unknown'
-}))
+const hasCpuPlayers = computed(() => {
+  return cpuPlayerCount.value > 0
+})
 
+// 게임 시작 조건을 방 설정 인원수에 맞게 수정
+const canStartGame = computed(() => {
+  return players.value.length >= (room.value?.max_players || 4)
+})
+
+// 게임 상태 디버깅을 위한 computed
+const gameStatusDebug = computed(() => {
+  return {
+    roomStatus: room.value?.status,
+    gameStoreStatus: gameStore.status,
+    gameId: gameStore.gameId,
+    roomId: gameStore.roomId,
+    currentTurnUserId: gameStore.currentTurnUserId,
+    myId: gameStore.myId,
+    myHandCount: gameStore.myHand.length,
+    isMyTurn: gameStore.isMyTurn,
+    playersCount: gameStore.players.length,
+    players: gameStore.players.map(p => ({ id: p.id, name: p.name || p.email })),
+    gamePlayersCount: players.value.length,
+    currentPlayerName: players.value.find(p => p.id === gameStore.currentTurnUserId)?.name || 
+                      players.value.find(p => p.id === gameStore.currentTurnUserId)?.email || 'Unknown'
+  }
+})
+
+// 게임 시작 조건 경고 메시지도 수정
 const startGameWarning = computed(() => {
   const maxPlayers = room.value?.max_players || 4
   const currentPlayers = players.value.length
@@ -320,16 +339,22 @@ const startGameWarning = computed(() => {
   return ''
 })
 
+// 유틸리티 함수
 function formatDate(dateString) {
   if (!dateString) return ''
   const date = new Date(dateString)
-  return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleTimeString('ko-KR', { 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  })
 }
 
 onMounted(async () => {
   if (roomId.value) {
     await loadRoom()
+    // 방 로드 완료 후 실시간 구독 설정
     setTimeout(() => {
+      console.log('실시간 구독 설정 시작')
       setupRealtimeSubscriptions()
     }, 1000)
   }
@@ -342,9 +367,10 @@ onUnmounted(() => {
   if (turnsSubscription) turnsSubscription.unsubscribe()
 })
 
-// CPU 자동 플레이
+// CPU 턴 자동 플레이
 watch(() => gameStore.currentTurnUserId, async (newTurnUserId) => {
   if (newTurnUserId && newTurnUserId.startsWith('cpu') && isRoomOwner.value) {
+    // 1.5초 지연 후 CPU 플레이 호출
     await new Promise(resolve => setTimeout(resolve, 1500));
     await gameStore.cpuPlay(newTurnUserId);
   }
@@ -352,29 +378,64 @@ watch(() => gameStore.currentTurnUserId, async (newTurnUserId) => {
 
 async function loadRoom() {
   if (!roomId.value) return
+  
   loading.value = true
   error.value = ''
+  
   try {
+    console.log('방 로드 시작:', roomId.value)
+    
+    // 방 정보 로드 (재시도 로직 포함)
     let roomData = null
+    let roomError = null
     let retryCount = 0
+    
     while (retryCount < 5) {
       const { data, error } = await supabase
         .from('lo_rooms')
         .select('*')
         .eq('id', roomId.value)
         .single()
-      if (data && !error) { roomData = data; break }
-      await new Promise(r => setTimeout(r, 500))
+      
+      if (data && !error) {
+        roomData = data
+        roomError = null
+        console.log('방 정보 로드 성공:', roomData.id)
+        break
+      }
+      
+      roomError = error
+      console.log(`방 정보 로드 재시도 ${retryCount + 1}/5:`, error?.message)
+      await new Promise(resolve => setTimeout(resolve, 500))
       retryCount++
     }
-    if (!roomData) { error.value = '방을 찾을 수 없습니다.'; return }
+    
+    if (roomError || !roomData) {
+      console.error('방을 찾을 수 없습니다:', roomError)
+      error.value = '방을 찾을 수 없습니다.'
+      return
+    }
+    
     room.value = roomData
+    
+    // 플레이어 목록 로드
     await loadPlayers()
+    
+    // 방 생성자가 플레이어 목록에 없으면 자동으로 추가
     if (roomData.created_by && !players.value.find(p => p.id === roomData.created_by)) {
+      console.log('방 생성자를 플레이어로 추가합니다:', roomData.created_by)
       await addRoomCreatorAsPlayer(roomData.created_by)
+      // 플레이어 목록을 다시 로드하여 정렬된 상태 확인
       await loadPlayers()
     }
-    if (roomData.status === 'playing') await loadGameData()
+    
+    // 게임 정보 로드 (진행 중인 경우)
+    if (roomData.status === 'playing') {
+      await loadGameData()
+    }
+    
+    console.log('방 로드 완료')
+    
   } catch (err) {
     console.error('방 로드 오류:', err)
     error.value = '방 정보를 불러오지 못했습니다.'
@@ -385,39 +446,77 @@ async function loadRoom() {
 
 async function loadPlayers() {
   try {
+    // 먼저 플레이어 목록을 가져옴
     const { data: playerData, error: playerError } = await supabase
       .from('lo_room_players')
       .select('*')
       .eq('room_id', roomId.value)
       .order('joined_at', { ascending: true })
-    if (playerError) { console.error('플레이어 목록 로드 오류:', playerError); return }
-    if (!playerData) { players.value = []; return }
-
-    const realUserIds = playerData.filter(p => !p.user_id.startsWith('cpu')).map(p => p.user_id)
-    const profileMap = {}
-    // profiles 테이블이 없을 수도 있어서 임시 라벨링
-    realUserIds.forEach(uid => { profileMap[uid] = `User_${uid.slice(0, 8)}` })
-
-    let playerList = playerData.map(p => {
-      const isCpu = p.user_id.startsWith('cpu')
+    
+    if (playerError) {
+      console.error('플레이어 목록 로드 오류:', playerError)
+      return
+    }
+    
+    if (!playerData) {
+      console.log('플레이어 데이터가 없습니다.')
+      players.value = []
+      return
+    }
+    
+    console.log('플레이어 목록 로드:', playerData.length, '명')
+    
+    // 실제 사용자 ID들만 추출
+    const realUserIds = playerData
+      .filter(p => !p.user_id.startsWith('cpu'))
+      .map(p => p.user_id)
+    
+    // 한 번에 모든 프로필 정보 가져오기
+    let profileMap = {}
+    if (realUserIds.length > 0) {
+      console.log('프로필 정보를 가져올 사용자 ID들:', realUserIds)
+      
+      // profiles 테이블이 없을 수 있으므로 사용자 ID를 기반으로 이름 생성
+      console.log('프로필 정보를 사용자 ID 기반으로 생성합니다.')
+      realUserIds.forEach(userId => {
+        profileMap[userId] = `User_${userId.slice(0, 8)}`
+      })
+    }
+    
+    // 플레이어 목록 생성
+    let playerList = playerData.map(player => {
+      const isCpu = player.user_id.startsWith('cpu')
+      
       return {
-        id: p.user_id,
-        email: isCpu ? p.user_id.toUpperCase() : (profileMap[p.user_id] || `User_${p.user_id.slice(0, 8)}`),
-        joinedAt: p.joined_at,
+        id: player.user_id,
+        email: isCpu ? player.user_id.toUpperCase() : (profileMap[player.user_id] || `User_${player.user_id.slice(0, 8)}`),
+        joinedAt: player.joined_at,
         handCount: 0
       }
     })
-
+    
+    // 방 생성자를 첫 번째로 정렬
     if (room.value?.created_by) {
-      const idx = playerList.findIndex(p => p.id === room.value.created_by)
-      if (idx > 0) {
-        const creator = playerList.splice(idx, 1)[0]
+      const creatorIndex = playerList.findIndex(p => p.id === room.value.created_by)
+      console.log('방 생성자 ID:', room.value.created_by, '찾은 인덱스:', creatorIndex)
+      
+      if (creatorIndex > 0) {
+        const creator = playerList.splice(creatorIndex, 1)[0]
         playerList.unshift(creator)
+        console.log('방 생성자를 첫 번째로 이동:', creator.email)
+      } else if (creatorIndex === 0) {
+        console.log('방 생성자가 이미 첫 번째 위치에 있습니다.')
+      } else {
+        console.log('방 생성자를 플레이어 목록에서 찾을 수 없습니다.')
       }
     }
-
+    
     players.value = playerList
+    console.log('최종 플레이어 목록:', players.value.map(p => `${p.email} (${p.id})`))
+    
+    // 방의 플레이어 수 업데이트
     await updateRoomPlayerCount(playerData.length)
+    
   } catch (err) {
     console.error('플레이어 목록 로드 오류:', err)
     players.value = []
@@ -425,20 +524,32 @@ async function loadPlayers() {
 }
 
 async function updateRoomPlayerCount(count) {
-  await supabase.from('lo_rooms').update({ players: count }).eq('id', roomId.value)
+  await supabase
+    .from('lo_rooms')
+    .update({ players: count })
+    .eq('id', roomId.value)
 }
 
 async function loadGameData() {
+  // 게임 데이터 로드
   const { data: gameData, error: gameError } = await supabase
     .from('lo_games')
     .select('*')
     .eq('room_id', roomId.value)
     .eq('status', 'playing')
     .single()
+  
   if (!gameError && gameData) {
+    // 게임 store 초기화
     gameStore.initializeGame(gameData, gamePlayers.value, auth.user?.id)
+    
+    // 내 카드 로드
     await loadMyHand(gameData.id)
+    
+    // 플레이어들의 카드 수 업데이트
     await updatePlayerHandCounts(gameData.id)
+    
+    // 마지막 턴 정보 로드
     await loadLastTurn(gameData.id)
   }
 }
@@ -450,27 +561,52 @@ async function loadMyHand(gameId) {
     .eq('game_id', gameId)
     .eq('owner_id', auth.user?.id)
     .eq('in_hand', true)
-  if (!err && data) gameStore.setMyHand(data)
+  
+  if (!err && data) {
+    gameStore.setMyHand(data)
+  }
 }
 
 async function updatePlayerHandCounts(gameId) {
+  console.log('🃏 플레이어 카드 수 업데이트 시작:', gameId)
+  
   const { data, error: err } = await supabase
     .from('lo_cards')
     .select('owner_id, in_hand')
     .eq('game_id', gameId)
     .eq('in_hand', true)
+  
+  console.log('📊 DB에서 가져온 카드 데이터:', data)
+  console.log('❌ DB 오류:', err)
+  
   if (!err && data) {
-    const handCounts = data.reduce((acc, c) => {
-      acc[c.owner_id] = (acc[c.owner_id] || 0) + 1
-      return acc
+    const handCounts = data.reduce((counts, card) => {
+      counts[card.owner_id] = (counts[card.owner_id] || 0) + 1
+      return counts
     }, {})
+    
+    console.log('📈 실제 플레이어 카드 수:', handCounts)
+    
+    // 플레이어들의 카드 수 업데이트
     players.value = players.value.map(player => {
       let handCount = handCounts[player.id] || 0
+      
+      // CPU 플레이어인 경우 gameStore에서 카드 수 가져오기
       if (player.id.startsWith('cpu')) {
-        handCount = (gameStore.cpuHands[player.id] || []).length
+        const cpuCards = gameStore.cpuHands[player.id] || []
+        handCount = cpuCards.length
+        console.log(`🤖 CPU ${player.id} 카드 수:`, handCount)
       }
-      return { ...player, handCount }
+      
+      console.log(`👤 ${player.email} (${player.id}) 카드 수:`, handCount)
+      
+      return {
+        ...player,
+        handCount: handCount
+      }
     })
+    
+    console.log('✅ 업데이트된 플레이어 목록:', players.value.map(p => ({ name: p.email, handCount: p.handCount })))
   }
 }
 
@@ -481,62 +617,157 @@ async function loadLastTurn(gameId) {
     .eq('game_id', gameId)
     .order('created_at', { ascending: false })
     .limit(1)
-  if (!err && data && data[0]) gameStore.updateLastPlay(data[0])
+  
+  if (!err && data && data[0]) {
+    gameStore.updateLastPlay(data[0])
+  }
 }
 
 function setupRealtimeSubscriptions() {
-  // 방
+  console.log('🔌 실시간 구독 설정 시작')
+  console.log('📋 구독 설정 정보:', {
+    roomId: roomId.value,
+    gameId: gameStore.gameId,
+    playersCount: gameStore.players.length
+  })
+  
+  // 방 정보 실시간 구독
   roomSubscription = supabase
     .channel('room-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'lo_rooms', filter: `id=eq.${roomId.value}` },
-      (payload) => {
-        if (payload.eventType === 'DELETE') { router.push('/game'); return }
-        room.value = payload.new
-        if (payload.new.status === 'playing') loadGameData()
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'lo_rooms',
+      filter: `id=eq.${roomId.value}`
+    }, (payload) => {
+      console.log('🏠 방 정보 변경 감지:', payload)
+      if (payload.eventType === 'DELETE') {
+        router.push('/game')
+        return
       }
-    )
+      
+      room.value = payload.new
+      
+      // 게임이 시작된 경우
+      if (payload.new.status === 'playing') {
+        loadGameData()
+      }
+    })
     .subscribe()
 
-  // 플레이어
+  // 플레이어 목록 실시간 구독
   playersSubscription = supabase
     .channel('players-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'lo_room_players', filter: `room_id=eq.${roomId.value}` },
-      async () => { await loadPlayers() }
-    )
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'lo_room_players',
+      filter: `room_id=eq.${roomId.value}`
+    }, async (payload) => {
+      console.log('👥 플레이어 목록 변경 감지:', payload)
+      if (payload.eventType === 'DELETE') {
+        await loadPlayers()
+        
+        // 방에 플레이어가 없으면 방 삭제
+        if (players.value.length === 0) {
+          await supabase.from('lo_rooms').delete().eq('id', roomId.value)
+          router.push('/game')
+        }
+        return
+      }
+      
+      if (payload.eventType === 'INSERT') {
+        // 새 실제 플레이어 추가 (CPU는 로컬에서만 관리)
+        await loadPlayers()
+        return
+      }
+      
+      if (payload.eventType === 'UPDATE') {
+        // 플레이어 정보 업데이트
+        await loadPlayers()
+        return
+      }
+      
+      await loadPlayers()
+    })
     .subscribe()
 
-  // 게임
+  // 게임 상태 실시간 구독
   gameSubscription = supabase
     .channel('game-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'lo_games', filter: `room_id=eq.${roomId.value}` },
-      async () => { await loadGameData() }
-    )
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'lo_games',
+      filter: `room_id=eq.${roomId.value}`
+    }, async (payload) => {
+      console.log('🎮 게임 상태 변경 감지:', payload)
+      if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+        await loadGameData()
+      }
+    })
     .subscribe()
 
-  // 턴
+  // 턴 정보 실시간 구독
   turnsSubscription = supabase
     .channel('turns-changes')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'lo_game_turns', filter: `game_id=eq.${gameStore.gameId}` },
-      async (payload) => {
-        gameStore.updateLastPlay(payload.new)
-        await updatePlayerHandCounts(gameStore.gameId)
-        if (payload.new?.action === 'turn_complete' && payload.new.player_id) {
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'lo_game_turns',
+      filter: `game_id=eq.${gameStore.gameId}`
+    }, async (payload) => {
+      console.log('🔄 턴 정보 변경 감지:', payload)
+      gameStore.updateLastPlay(payload.new)
+      await updatePlayerHandCounts(gameStore.gameId)
+      
+      // 턴 변경 처리
+      if (payload.new && payload.new.player_id) {
+        // turn_complete 액션인 경우에만 턴 변경 처리
+        if (payload.new.action === 'turn_complete') {
+          console.log('🔄 실시간 턴 변경 감지:', payload.new)
+          console.log('📋 현재 게임 상태:', {
+            currentTurnUserId: gameStore.currentTurnUserId,
+            players: gameStore.players.map(p => ({ id: p.id, name: p.email }))
+          })
+          
+          // 현재 플레이어가 턴을 완료했으므로, 다음 플레이어로 턴 넘기기
           const currentIndex = gameStore.players.findIndex(p => p.id === payload.new.player_id)
           if (currentIndex !== -1) {
             const nextIndex = (currentIndex + 1) % gameStore.players.length
             const nextPlayerId = gameStore.players[nextIndex].id
+            
+            console.log('👥 턴 변경 계산:', {
+              currentIndex,
+              nextIndex,
+              currentPlayerId: payload.new.player_id,
+              nextPlayerId,
+              totalPlayers: gameStore.players.length
+            })
+            
             gameStore.setCurrentTurnUserId(nextPlayerId)
+            
+            console.log('턴 변경:', payload.new.player_id, '->', nextPlayerId)
+            
+            // CPU 턴이면 자동 플레이
+            if (nextPlayerId.startsWith('cpu')) {
+              console.log('🤖 CPU 턴 감지, 자동 플레이 예약:', nextPlayerId)
+              // CPU는 이미 자신의 턴에서 플레이/패스를 완료했으므로 추가 호출 불필요
+              console.log('✅ CPU 턴 완료됨, 추가 플레이 호출 없음')
+            }
+          } else {
+            console.log('⚠️ 턴 변경 실패: 플레이어를 찾을 수 없음:', payload.new.player_id)
           }
         }
       }
-    )
+    })
     .subscribe()
+    
+  console.log('✅ 실시간 구독 설정 완료')
 }
 
 async function startGame() {
-  // ✅ 방장만 실행 & 분배 중 재진입 방지
   if (!isRoomOwner.value || !canStartGame.value) return;
-  if (dealing.value) return;
 
   try {
     const { data: gameData, error: gameError } = await supabase
@@ -544,20 +775,16 @@ async function startGame() {
       .insert({ room_id: roomId.value, created_by: auth.user.id })
       .select()
       .single();
+
     if (gameError) throw gameError;
 
-    // ✅ 카드 분배(중복 방지 포함)
     await distributeCards(gameData.id);
 
     const firstTurnPlayerId = await findPlayerWithCloud3(gameData.id);
 
     await supabase
       .from('lo_games')
-      .update({
-        current_turn_user_id: firstTurnPlayerId,
-        status: 'playing',
-        started_at: new Date().toISOString()
-      })
+      .update({ current_turn_user_id: firstTurnPlayerId, status: 'playing', started_at: new Date().toISOString() })
       .eq('id', gameData.id);
 
     await supabase
@@ -566,122 +793,265 @@ async function startGame() {
       .eq('id', roomId.value);
 
   } catch (err) {
-    console.error('게임 시작 오류:', {
-      code: err.code, message: err.message, details: err.details, hint: err.hint
-    });
-    error.value = '게임을 시작할 수 없습니다: ' + (err.message || '알 수 없는 오류');
+    console.error('게임 시작 오류:', err);
+    error.value = '게임을 시작할 수 없습니다: ' + err.message;
   }
 }
 
-// CPU용 UUID (UUID 포맷 준수: 마지막 12자리를 16진수로)
+async function kickPlayer(playerId) {
+  // 방장이 아니거나 자신을 추방하려는 경우
+  if (!isRoomOwner.value || playerId === auth.user?.id) {
+    console.log('추방 권한이 없거나 자신을 추방하려고 합니다.')
+    return
+  }
+  
+  // 방장을 추방하려는 경우
+  if (playerId === room.value?.created_by) {
+    console.log('방장은 추방할 수 없습니다.')
+    error.value = '방장은 추방할 수 없습니다.'
+    return
+  }
+  
+  // CPU 플레이어인 경우
+  if (playerId.startsWith('cpu')) {
+    console.log('CPU 플레이어는 추방할 수 없습니다. CPU 제거 기능을 사용하세요.')
+    error.value = 'CPU 플레이어는 추방할 수 없습니다.'
+    return
+  }
+  
+  try {
+    console.log('플레이어 추방 시작:', playerId)
+    
+    // 플레이어를 방에서 제거
+    const { error } = await supabase
+      .from('lo_room_players')
+      .delete()
+      .eq('room_id', roomId.value)
+      .eq('user_id', playerId)
+    
+    if (error) {
+      console.error('플레이어 추방 DB 오류:', error)
+      throw error
+    }
+    
+    console.log('플레이어 추방 성공:', playerId)
+    
+    // 플레이어 목록 새로고침
+    await loadPlayers()
+    
+    // 방의 플레이어 수 업데이트
+    await updateRoomPlayerCount(players.value.length)
+    
+    // 성공 메시지
+    console.log('플레이어 추방 완료')
+    
+  } catch (err) {
+    console.error('플레이어 추방 오류:', err)
+    error.value = '플레이어를 추방할 수 없습니다.'
+  }
+}
+
+async function addCpu() {
+  if (!isRoomOwner.value || players.value.length >= 4) return
+  
+  try {
+    const cpuId = `cpu${cpuPlayerCount.value + 1}`
+    const cpuPlayer = {
+      id: cpuId,
+      email: `CPU${cpuPlayerCount.value + 1}`,
+      name: `CPU${cpuPlayerCount.value + 1}`,
+      joinedAt: new Date().toISOString(),
+      handCount: 0
+    }
+    
+    // CPU는 실제 DB에 추가하지 않고 로컬에서만 관리
+    // (실제 사용자가 아니므로 DB에 저장하면 오류 발생)
+    players.value.push(cpuPlayer)
+    
+    // 방의 플레이어 수 업데이트 (CPU 포함)
+    await updateRoomPlayerCount(players.value.length)
+    
+  } catch (err) {
+    console.error('CPU 추가 오류:', err)
+    error.value = 'CPU를 추가할 수 없습니다.'
+  }
+}
+
+async function removeCpu() {
+  if (!isRoomOwner.value || !hasCpuPlayers.value) return
+  
+  try {
+    // 가장 마지막 CPU 찾기
+    const lastCpu = players.value.filter(p => isCpuPlayer(p.id)).pop()
+    if (!lastCpu) return
+    
+    // CPU는 로컬에서만 제거 (DB에 저장하지 않았으므로)
+    players.value = players.value.filter(p => p.id !== lastCpu.id)
+    
+    // 방의 플레이어 수 업데이트
+    await updateRoomPlayerCount(players.value.length)
+    
+  } catch (err) {
+    console.error('CPU 제거 오류:', err)
+    error.value = 'CPU를 제거할 수 없습니다.'
+  }
+}
+
+async function loadMyCards(gameId) {
+  try {
+    console.log('내 카드 로드 시작:', gameId, auth.user?.id)
+    
+    const { data: cards, error } = await supabase
+      .from('lo_cards')
+      .select('*')
+      .eq('game_id', gameId)
+      .eq('owner_id', auth.user?.id)
+      .eq('in_hand', true)
+    
+    if (error) {
+      console.error('내 카드 로드 오류:', error)
+      return
+    }
+    
+    if (cards && cards.length > 0) {
+      // DB 형식을 게임 형식으로 변환
+      const myCards = cards.map(card => ({
+        suit: card.suit,
+        number: parseInt(card.rank), // CPU 카드와 동일한 형식으로 통일
+        rank: card.rank // 호환성을 위해 유지
+      }))
+      
+      // 카드를 약한 순서부터 강한 순서로 정렬
+      const sortedCards = myCards.sort((a, b) => {
+        // 먼저 숫자로 정렬 (3이 가장 낮음, 2가 가장 높음)
+        const aNumber = parseInt(a.rank)
+        const bNumber = parseInt(b.rank)
+        if (aNumber !== bNumber) {
+          return aNumber - bNumber
+        }
+        // 숫자가 같으면 문양으로 정렬 (cloud < star < moon < sun)
+        const suitOrder = { cloud: 1, star: 2, moon: 3, sun: 4 }
+        return suitOrder[a.suit] - suitOrder[b.suit]
+      })
+      
+      gameStore.setMyHand(sortedCards)
+      console.log('내 카드 로드 완료:', sortedCards.length, '장')
+      console.log('내 카드 목록 (정렬됨):', sortedCards.map(c => `${c.suit} ${c.rank}`))
+    } else {
+      console.log('내 카드가 없습니다.')
+      gameStore.setMyHand([])
+    }
+  } catch (err) {
+    console.error('내 카드 로드 중 예외:', err)
+  }
+}
+
+// CPU용 UUID 생성 함수 (UUID 포맷 준수)
 function toCpuUUID(cpuId) {
   const numberPart = cpuId.replace(/^cpu/, '');
-  const hexPart = parseInt(numberPart, 10).toString(16).padStart(12, '0');
-  return `00000000-0000-0000-0000-${hexPart}`;
+  const hexPart = parseInt(numberPart, 10).toString(16).padStart(12, '0');  // → "000000000001"
+  return `00000000-0000-0000-0000-${hexPart}`;  // ✅ 16진수만 포함된 유효한 UUID
 }
 
 async function distributeCards(gameId) {
-  if (dealing.value) { console.warn('이미 분배 중, 스킵'); return; }
-  dealing.value = true;
-  try {
-    // ✅ 이미 분배된 게임이면 스킵
-    const { count, error: cntErr } = await supabase
-      .from('lo_cards')
-      .select('id', { count: 'exact', head: true })
-      .eq('game_id', gameId);
-    if (cntErr) throw cntErr;
-    if ((count ?? 0) > 0) { console.warn('이미 분배된 게임, 스킵'); return; }
+  const playerCount = players.value.length;
+  const suits = ['cloud', 'star', 'moon', 'sun'];
+  let numbers, totalCards;
 
-    const playerCount = players.value.length;
-    const suits = ['cloud', 'star', 'moon', 'sun'];
-    let numbers, totalCards;
-
-    if (playerCount === 3) {
-      numbers = Array.from({ length: 9 }, (_, i) => i + 1);
-      totalCards = 36;
-    } else if (playerCount === 5) {
-      numbers = Array.from({ length: 15 }, (_, i) => i + 1);
-      totalCards = 60;
-    } else {
-      numbers = Array.from({ length: 13 }, (_, i) => i + 1);
-      totalCards = 52;
-    }
-
-    const tiles = suits.flatMap(suit => numbers.map(number => ({ suit, number })));
-    for (let i = tiles.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
-    }
-
-    const allPlayerIds = players.value.map(p => p.id);
-    const realPlayerIds = allPlayerIds.filter(id => !id.startsWith('cpu'));
-    const cpuPlayerIds  = allPlayerIds.filter(id =>  id.startsWith('cpu'));
-
-    const cardsToInsert = [];
-    const cpuHands = Object.fromEntries(cpuPlayerIds.map(id => [id, []]));
-
-    for (let i = 0; i < totalCards; i++) {
-      const playerId = allPlayerIds[i % playerCount];
-      const tile = tiles[i];
-
-      const card = {
-        game_id: gameId,
-        suit: tile.suit,
-        rank: tile.number.toString(),
-        in_hand: true,
-      };
-
-      if (realPlayerIds.includes(playerId)) {
-        card.owner_id = playerId;
-        cardsToInsert.push(card);
-      } else {
-        const uuid = toCpuUUID(playerId);
-        card.owner_id = uuid;
-        cardsToInsert.push(card);
-        cpuHands[playerId].push(tile);
-      }
-    }
-
-    const { error } = await supabase.from('lo_cards').insert(cardsToInsert);
-    if (error) {
-      console.error('카드 대량 삽입 오류:', {
-        code: error.code, message: error.message, details: error.details, hint: error.hint
-      });
-      throw error;
-    }
-
-    for (const cpuId in cpuHands) {
-      gameStore.setCpuHand(cpuId, cpuHands[cpuId]);
-    }
-
-    console.log(`${playerCount}인 게임: ${totalCards}장 분배 완료`);
-  } finally {
-    dealing.value = false;
+  if (playerCount === 3) {
+    numbers = Array.from({ length: 9 }, (_, i) => i + 1);
+    totalCards = 36;
+  } else if (playerCount === 5) {
+    numbers = Array.from({ length: 15 }, (_, i) => i + 1);
+    totalCards = 60;
+  } else {
+    numbers = Array.from({ length: 13 }, (_, i) => i + 1);
+    totalCards = 52;
   }
+
+  // 카드 셔플
+  const tiles = suits.flatMap(suit => numbers.map(number => ({ suit, number })));
+  for (let i = tiles.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
+  }
+
+  const allPlayerIds = players.value.map(p => p.id);
+  const realPlayerIds = allPlayerIds.filter(id => !id.startsWith('cpu'));
+  const cpuPlayerIds = allPlayerIds.filter(id => id.startsWith('cpu'));
+
+  const cardsToInsert = [];
+  const cpuHands = Object.fromEntries(cpuPlayerIds.map(id => [id, []]));
+
+  for (let i = 0; i < totalCards; i++) {
+    const playerId = allPlayerIds[i % playerCount];
+    const tile = tiles[i];
+
+    const card = {
+      game_id: gameId,
+      suit: tile.suit,
+      rank: tile.number.toString(),
+      in_hand: true,
+    };
+
+    if (realPlayerIds.includes(playerId)) {
+      card.owner_id = playerId;
+      cardsToInsert.push(card);
+    } else if (cpuPlayerIds.includes(playerId)) {
+      const uuid = toCpuUUID(playerId);  // 올바른 UUID 변환
+      card.owner_id = uuid;
+      cardsToInsert.push(card);
+      cpuHands[playerId].push(tile);     // CPU 로컬 저장용
+    }
+  }
+
+  const { error } = await supabase.from('lo_cards').insert(cardsToInsert);
+  if (error) {
+    console.error('카드 대량 삽입 오류:', error);
+    throw error;
+  }
+
+  for (const cpuId in cpuHands) {
+    gameStore.setCpuHand(cpuId, cpuHands[cpuId]);
+  }
+
+  console.log(`${playerCount}인 게임: ${totalCards}장 분배 완료`);
 }
 
 async function leaveRoom() {
   if (!auth.user || !roomId.value) return
+  
   try {
+    // 방장이 나가는 경우 방 삭제
     if (isRoomOwner.value) {
       await supabase.from('lo_rooms').delete().eq('id', roomId.value)
     } else {
+      // 일반 플레이어는 방에서 제거
       const { error } = await supabase
         .from('lo_room_players')
         .delete()
         .eq('room_id', roomId.value)
         .eq('user_id', auth.user.id)
-      if (!error) {
+      
+      if (error) {
+        console.error('방 나가기 실패:', error)
+      } else {
+        // 남은 플레이어 수 확인
         const { data: remainingPlayers } = await supabase
           .from('lo_room_players')
           .select('*')
           .eq('room_id', roomId.value)
+        
         if (remainingPlayers && remainingPlayers.length === 0) {
+          // 방에 플레이어가 없으면 방 삭제
           await supabase.from('lo_rooms').delete().eq('id', roomId.value)
         }
       }
     }
+    
+    // 방 목록으로 돌아가기
     router.push('/game')
+    
   } catch (err) {
     console.error('방 나가기 중 오류:', err)
     router.push('/game')
@@ -695,27 +1065,57 @@ async function retryLoad() {
 
 async function addRoomCreatorAsPlayer(creatorId) {
   try {
+    console.log('방 생성자 플레이어 추가 시작:', creatorId)
+    
+    // 이미 플레이어로 추가되어 있는지 확인
     const { data: existingPlayer, error: checkError } = await supabase
       .from('lo_room_players')
       .select('*')
       .eq('room_id', roomId.value)
       .eq('user_id', creatorId)
-      .maybeSingle()
-    if (existingPlayer && !checkError) return
-
+      .single()
+    
+    if (existingPlayer && !checkError) {
+      console.log('방 생성자가 이미 플레이어로 추가되어 있습니다.')
+      return
+    }
+    
+    // 방 생성자의 프로필 정보 (사용자 ID 기반으로 생성)
+    let creatorEmail = `User_${creatorId.slice(0, 8)}`
+    console.log('방 생성자 이메일 생성:', creatorEmail)
+    
+    // 방 생성자를 플레이어로 추가
     const { error: insertError } = await supabase
       .from('lo_room_players')
-      .insert({ room_id: roomId.value, user_id: creatorId, joined_at: new Date().toISOString() })
-    if (insertError) { console.error('방 생성자 플레이어 추가 오류:', insertError); return }
-
+      .insert({
+        room_id: roomId.value,
+        user_id: creatorId,
+        joined_at: new Date().toISOString()
+      })
+    
+    if (insertError) {
+      console.error('방 생성자 플레이어 추가 오류:', insertError)
+      return
+    }
+    
+    console.log('방 생성자가 DB에 성공적으로 추가되었습니다.')
+    
+    // 로컬 상태에 추가
     const creatorPlayer = {
       id: creatorId,
-      email: `User_${creatorId.slice(0, 8)}`,
+      email: creatorEmail,
       joinedAt: new Date().toISOString(),
       handCount: 0
     }
+    
+    // 첫 번째 위치에 추가
     players.value.unshift(creatorPlayer)
+    
+    // 방의 플레이어 수 업데이트
     await updateRoomPlayerCount(players.value.length)
+    
+    console.log('방 생성자가 성공적으로 플레이어로 추가되었습니다. 현재 플레이어 수:', players.value.length)
+    
   } catch (err) {
     console.error('방 생성자 플레이어 추가 오류:', err)
   }
@@ -723,6 +1123,9 @@ async function addRoomCreatorAsPlayer(creatorId) {
 
 async function findPlayerWithCloud3(gameId) {
   try {
+    console.log('🔍 cloud 3 플레이어 검색 시작:', gameId)
+    
+    // cloud 3을 가진 실제 플레이어 찾기 (렉시오 규칙)
     const { data, error } = await supabase
       .from('lo_cards')
       .select('owner_id')
@@ -730,24 +1133,39 @@ async function findPlayerWithCloud3(gameId) {
       .eq('suit', 'cloud')
       .eq('rank', '3')
       .eq('in_hand', true)
+    
+    console.log('📊 cloud 3 검색 결과:', { data, error })
+    
     if (error) {
+      console.error('cloud 3 검색 오류:', error)
+      // 오류 발생 시 첫 번째 실제 플레이어로 설정
       const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
+      console.log('⚠️ 오류로 인한 대체 플레이어:', firstRealPlayer?.id)
       return firstRealPlayer?.id || players.value[0]?.id
     }
+    
     if (!data || data.length === 0) {
+      console.log('cloud 3을 가진 플레이어가 없습니다.')
+      console.log('📋 현재 플레이어 목록:', players.value.map(p => ({ id: p.id, email: p.email })))
+      // cloud 3이 없으면 첫 번째 실제 플레이어로 설정
       const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
+      console.log('⚠️ cloud 3 없음으로 인한 대체 플레이어:', firstRealPlayer?.id)
       return firstRealPlayer?.id || players.value[0]?.id
     }
-    return data[0].owner_id
+    
+    // 첫 번째 결과 사용 (single() 대신 배열의 첫 번째 요소)
+    const ownerId = data[0].owner_id
+    
+    // cloud 3을 가진 플레이어가 누구든 그 플레이어가 첫 턴을 가짐 (렉시오 규칙)
+    console.log('cloud 3을 가진 플레이어:', ownerId, '이(가) 첫 턴을 가집니다.')
+    return ownerId
+    
   } catch (err) {
+    console.error('cloud 3 플레이어 찾기 오류:', err)
+    // 오류 발생 시 첫 번째 실제 플레이어로 설정
     const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
+    console.log('⚠️ 예외로 인한 대체 플레이어:', firstRealPlayer?.id)
     return firstRealPlayer?.id || players.value[0]?.id
   }
 }
-</script>
-
-<style scoped>
-.scrollbar-thin { scrollbar-width: thin; }
-.scrollbar-thumb-gray-600::-webkit-scrollbar-thumb { background: #4b5563; }
-.scrollbar-track-gray-800::-webkit-scrollbar-track { background: #1f2937; }
-</style>
+</script> 
