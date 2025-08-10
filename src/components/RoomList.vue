@@ -87,6 +87,7 @@ const filteredRooms = computed(() => {
 
 // 실시간 구독
 let roomsSubscription = null
+let pollTimer = null;
 
 async function fetchRooms() {
   loading.value = true
@@ -130,15 +131,25 @@ function setupRealtimeSubscription() {
 }
 
 onMounted(() => {
-  fetchRooms()
-  setupRealtimeSubscription()
-})
+  fetchRooms();
+  setupRealtimeSubscription();
+
+  // 폴백 폴링 (3초 간격)
+  pollTimer = setInterval(fetchRooms, 3000);
+
+  // 탭 재진입 시 한 번 갱신
+  document.addEventListener('visibilitychange', onVis);
+});
 
 onUnmounted(() => {
-  if (roomsSubscription) {
-    roomsSubscription.unsubscribe()
-  }
-})
+  if (roomsSubscription) roomsSubscription.unsubscribe();
+  if (pollTimer) clearInterval(pollTimer);
+  document.removeEventListener('visibilitychange', onVis);
+});
+
+function onVis() {
+  if (document.visibilityState === 'visible') fetchRooms();
+}
 
 async function joinRoom(room) {
   if (!isAuthed.value) {
@@ -165,10 +176,17 @@ async function joinRoom(room) {
         joined_at: new Date().toISOString(),
       });
 
-    if (joinError && joinError.code !== '23505') {
-      alert('방 입장 실패: ' + joinError.message);
-      return;
+    if (joinError) {
+      // 이미 들어가 있다면 무시
+      if (joinError.code !== '23505') {
+        alert('방 입장 실패: ' + joinError.message);
+        return;
+      }
+    } else {
+      // insert가 성공한 경우에만 안전하게 서버측 증가
+      await supabase.rpc('inc_room_players', { rid: room.id });
     }
+    
 
     // 방 참여 인원 증가
     const currentPlayers = Number(room.players || 0);

@@ -350,23 +350,28 @@ function formatDate(dateString) {
   })
 }
 
-onMounted(async () => {
+let statusPoll = null;
+
+onMounted(() => {
   if (roomId.value) {
-    await loadRoom()
-    // 방 로드 완료 후 실시간 구독 설정
-    setTimeout(() => {
-      console.log('실시간 구독 설정 시작')
-      setupRealtimeSubscriptions()
-    }, 1000)
+    statusPoll = setInterval(async () => {
+      if (!room.value || room.value.status === 'playing') return;
+      const { data } = await supabase.from('lo_rooms').select('status').eq('id', roomId.value).single();
+      if (data?.status && room.value) room.value.status = data.status;
+      if (data?.status === 'playing') {
+        await loadGameData(); // 바로 보드 데이터 로드
+      }
+    }, 2000);
   }
-})
+});
 
 onUnmounted(() => {
+  if (statusPoll) clearInterval(statusPoll);
   if (roomSubscription) roomSubscription.unsubscribe()
   if (playersSubscription) playersSubscription.unsubscribe()
   if (gameSubscription) gameSubscription.unsubscribe()
   if (turnsSubscription) turnsSubscription.unsubscribe()
-})
+});
 
 // CPU 턴 자동 플레이
 watch(() => gameStore.currentTurnUserId, async (newTurnUserId) => {
