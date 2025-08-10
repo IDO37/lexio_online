@@ -95,7 +95,7 @@ CREATE POLICY "Room creators can delete their rooms" ON lo_rooms FOR DELETE USIN
 
 ALTER TABLE lo_room_players ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view room players" ON lo_room_players;
-CREATE POLICY "Users can view room players" ON lo_room_players FOR SELECT USING (EXISTS (SELECT 1 FROM lo_room_players rp WHERE rp.room_id = lo_room_players.room_id AND rp.user_id = auth.uid()));
+CREATE POLICY "Users can view room players" ON lo_room_players FOR SELECT USING (room_id IN (SELECT room_id FROM lo_room_players WHERE user_id = auth.uid()));
 DROP POLICY IF EXISTS "Users can insert themselves into rooms" ON lo_room_players;
 CREATE POLICY "Users can insert themselves into rooms" ON lo_room_players FOR INSERT WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "Users can delete themselves from rooms" ON lo_room_players;
