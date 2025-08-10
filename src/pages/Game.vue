@@ -255,6 +255,7 @@ const room = ref(null)
 const players = ref([])
 const loading = ref(false)
 const error = ref('')
+const startGameInFlight = ref(false)
 
 // 실시간 구독
 let roomSubscription = null
@@ -555,57 +556,93 @@ async function loadGameData() {
 }
 
 async function loadMyHand(gameId) {
-  const { data, error } = await supabase
-    .from('lo_cards')
-    .select('suit, rank, in_hand')        // 필요한 칼럼만
-    .eq('game_id', gameId)
-    .eq('in_hand', true);                 // ✅ owner_id 조건 제거 (RLS가 내 카드만 반환)
+  try {
+    // 내 participant.id 먼저 구하기
+    const { data: part, error: partErr } = await supabase
+      .from('lo_participants')
+      .select('id')
+      .eq('room_id', roomId.value)
+      .eq('user_id', auth.user?.id)
+      .single();
+    if (partErr || !part) {
+      console.warn('[loadMyHand] no participant for me', partErr);
+      gameStore.setMyHand([]);
+      return;
+    }
 
-  if (error) {
-    console.error('내 카드 로드 오류:', error);
-    return;
+    const { data: cards, error } = await supabase
+      .from('lo_cards')
+      .select('*')
+      .eq('game_id', gameId)
+      .eq('owner_id', part.id)        // ✅ 참가자 ID로 조회
+      .eq('in_hand', true);
+
+    if (error) {
+      console.error('내 카드 로드 오류:', error);
+      return;
+    }
+
+    const myCards = (cards || []).map(card => ({
+      suit: card.suit,
+      number: parseInt(card.rank, 10),
+      rank: card.rank,
+    })).sort((a,b) => {
+      const an = a.number, bn = b.number;
+      if (an !== bn) return an - bn;
+      const order = { cloud:1, star:2, moon:3, sun:4 };
+      return order[a.suit] - order[b.suit];
+    });
+
+    gameStore.setMyHand(myCards);
+  } catch (err) {
+    console.error('내 카드 로드 중 예외:', err);
   }
-
-  const myCards = (data || []).map(c => ({
-    suit: c.suit,
-    number: parseInt(c.rank, 10),
-    rank: c.rank,
-  })).sort((a, b) => {
-    const na = a.number, nb = b.number;
-    if (na !== nb) return na - nb;
-    const order = { cloud: 1, star: 2, moon: 3, sun: 4 };
-    return order[a.suit] - order[b.suit];
-  });
-
-  gameStore.setMyHand(myCards);
 }
 
 
 async function updatePlayerHandCounts(gameId) {
-  const { data, error } = await supabase
+  console.log('🃏 핸드 수 업데이트:', gameId);
+
+  const { data, error: err } = await supabase
     .from('lo_cards')
-    .select('owner_id, in_hand, participants:owner_id ( user_id, cpu_tag )')
+    .select(`
+      owner_id,
+      in_hand,
+      participants:owner_id ( user_id, cpu_tag )
+    `)
     .eq('game_id', gameId)
     .eq('in_hand', true);
 
-  if (error) {
-    console.error('플레이어 카드 수 로드 오류:', error);
+  if (err) {
+    console.error('핸드 수 조회 오류:', err);
     return;
   }
 
-  // user_id(실유저) 또는 cpu_tag(CPU)로 집계
+  // owner_id(=participant.id) → user_id 또는 cpu_tag 로 환원
   const counts = {};
   for (const row of (data || [])) {
-    const key = row.participants?.cpu_tag || row.participants?.user_id;
+    const p = row.participants;
+    const key = p?.user_id || p?.cpu_tag;   // 실유저: user_id / CPU: cpu_tag
     if (!key) continue;
     counts[key] = (counts[key] || 0) + 1;
   }
 
-  // players.value의 id(유저 uuid or 'cpuN')와 매칭
-  players.value = players.value.map(p => ({
-    ...p,
-    handCount: counts[p.id] || 0,
-  }));
+  players.value = players.value.map(player => {
+    const key = isCpuPlayer(player.id) ? player.id : player.id; // player.id 자체가 user_id 또는 'cpuX'
+    let handCount = counts[key] || 0;
+
+    // 화면에서 CPU 로컬 핸드도 유지하고 싶다면(선택):
+    if (isCpuPlayer(player.id)) {
+      const cpuCards = gameStore.cpuHands[player.id] || [];
+      // DB 기준이 정확하므로 굳이 덮어쓰진 말고, 필요 시 비교 로그만 남김
+      if (cpuCards.length !== handCount) {
+        console.log(`🤖 CPU ${player.id} 화면/DB 불일치`, { ui: cpuCards.length, db: handCount });
+      }
+    }
+    return { ...player, handCount };
+  });
+
+  console.log('✅ 핸드 수 반영 완료:', players.value.map(p => ({ id: p.id, cnt: p.handCount })));
 }
 
 
@@ -810,15 +847,12 @@ async function ensureParticipants(roomId, playerIds /* ['<user-uuid>', 'cpu1', .
 
 
 async function startGame() {
-  if (!isRoomOwner.value || !canStartGame.value) {
-    console.warn('[startGame] blocked', {isRoomOwner: isRoomOwner.value, canStartGame: canStartGame.value});
-    return;
-  }
+  if (!isRoomOwner.value || !canStartGame.value || startGameInFlight.value) return;
+  startGameInFlight.value = true;
 
   try {
     console.log('[startGame] begin', { roomId: roomId.value, players: players.value.map(p=>p.id) });
 
-    // 1) 게임 생성
     const { data: gameData, error: gameError } = await supabase
       .from('lo_games')
       .insert({ room_id: roomId.value, created_by: auth.user.id, status: 'playing' })
@@ -827,16 +861,13 @@ async function startGame() {
     if (gameError || !gameData) throw new Error('[lo_games.insert] ' + (gameError?.message || 'no data'));
     console.log('[startGame] game created', gameData);
 
-    // 2) 참가자 upsert (유저+CPU)
     const clientIds = players.value.map(p => p.id);
     const participantIdMap = await ensureParticipants(roomId.value, clientIds);
     console.log('[startGame] participants mapped', participantIdMap);
 
-    // 3) 카드 분배 (owner_id = participant.id)
     await distributeCards(gameData.id, participantIdMap);
     console.log('[startGame] cards distributed');
 
-    // 4) 첫 턴 설정 (owner_id=participants.id 반환해야 함)
     const firstTurnParticipantId = await findPlayerWithCloud3(gameData.id);
     if (!firstTurnParticipantId) throw new Error('[findPlayerWithCloud3] returned null');
 
@@ -847,18 +878,44 @@ async function startGame() {
     if (updateErr) throw new Error('[lo_games.update] ' + updateErr.message);
     console.log('[startGame] first turn set', firstTurnParticipantId);
 
-    // 5) 방 상태 업데이트
-    const { error: roomErr } = await supabase
-      .from('lo_rooms')
-      .update({ status: 'playing' })
-      .eq('id', roomId.value);
-    if (roomErr) throw new Error('[lo_rooms.update] ' + roomErr.message);
+    // ✅ 로컬 UI도 즉시 전환
+    room.value.status = 'playing';
+    // 게임 데이터 즉시 로드 (실시간 기다리지 않음)
+    await loadGameData();
+
+    // ✅ 턴 실시간 구독을 게임 생성 후 다시 잡기
+    resubscribeTurns(gameData.id);
 
   } catch (err) {
     console.error('[startGame] FAILED:', err);
     error.value = '게임을 시작할 수 없습니다: ' + (err?.message || String(err));
+  } finally {
+    startGameInFlight.value = false;
   }
 }
+
+function resubscribeTurns(gameId) {
+  if (turnsSubscription) {
+    try { turnsSubscription.unsubscribe(); } catch {}
+    turnsSubscription = null;
+  }
+
+  turnsSubscription = supabase
+    .channel('turns-changes-' + gameId)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'lo_game_turns',
+      filter: `game_id=eq.${gameId}`
+    }, async (payload) => {
+      console.log('🔄 턴 정보 변경 감지:', payload)
+      gameStore.updateLastPlay(payload.new)
+      await updatePlayerHandCounts(gameId)
+      // ... (기존 로직 동일)
+    })
+    .subscribe();
+}
+
 
 async function kickPlayer(playerId) {
   // 방장이 아니거나 자신을 추방하려는 경우
