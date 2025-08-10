@@ -766,6 +766,30 @@ function setupRealtimeSubscriptions() {
   console.log('✅ 실시간 구독 설정 완료')
 }
 
+// 참가자 레코드를 방에 맞춰 생성/업서트하고, 매핑을 돌려줌
+async function ensureParticipants(roomId, playerIds /* ['<user-uuid>', 'cpu1', ...] */) {
+  const rows = playerIds.map(id => {
+    if (id.startsWith('cpu')) return { room_id: roomId, cpu_tag: id };
+    return { room_id: roomId, user_id: id };
+  });
+
+  // 중복 무시 업서트
+  const { data, error } = await supabase
+    .from('lo_participants')
+    .upsert(rows, { onConflict: 'room_id,user_id,cpu_tag' })
+    .select('*');
+
+  if (error) throw error;
+
+  // 매핑: 사용자ID/CPU태그 → participant.id
+  const map = {};
+  for (const p of data) {
+    if (p.user_id) map[p.user_id] = p.id;
+    if (p.cpu_tag) map[p.cpu_tag] = p.id;
+  }
+  return map;
+}
+
 async function startGame() {
   if (!isRoomOwner.value || !canStartGame.value) return;
 
@@ -778,7 +802,12 @@ async function startGame() {
 
     if (gameError) throw gameError;
 
-    await distributeCards(gameData.id);
+    // 2) 참가자 확보 (실유저 + CPU)
+    const clientIds = players.value.map(p => p.id); // ['user-uuid', 'cpu1', ...]
+    const participantIdMap = await ensureParticipants(roomId.value, clientIds);
+    
+    // 3) 분배 시 owner_id = participantIdMap[clientId]
+    await distributeCards(gameData.id, participantIdMap);
 
     const firstTurnPlayerId = await findPlayerWithCloud3(gameData.id);
 
@@ -953,69 +982,49 @@ function toCpuUUID(cpuId) {
   return `00000000-0000-0000-0000-${hexPart}`;  // ✅ 16진수만 포함된 유효한 UUID
 }
 
-async function distributeCards(gameId) {
+async function distributeCards(gameId, participantIdMap) {
   const playerCount = players.value.length;
   const suits = ['cloud', 'star', 'moon', 'sun'];
   let numbers, totalCards;
+  if (playerCount === 3)      { numbers = [...Array(9)].map((_,i)=>i+1);  totalCards=36; }
+  else if (playerCount === 5) { numbers = [...Array(15)].map((_,i)=>i+1); totalCards=60; }
+  else                        { numbers = [...Array(13)].map((_,i)=>i+1); totalCards=52; }
 
-  if (playerCount === 3) {
-    numbers = Array.from({ length: 9 }, (_, i) => i + 1);
-    totalCards = 36;
-  } else if (playerCount === 5) {
-    numbers = Array.from({ length: 15 }, (_, i) => i + 1);
-    totalCards = 60;
-  } else {
-    numbers = Array.from({ length: 13 }, (_, i) => i + 1);
-    totalCards = 52;
-  }
-
-  // 카드 셔플
   const tiles = suits.flatMap(suit => numbers.map(number => ({ suit, number })));
   for (let i = tiles.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
   }
 
-  const allPlayerIds = players.value.map(p => p.id);
-  const realPlayerIds = allPlayerIds.filter(id => !id.startsWith('cpu'));
-  const cpuPlayerIds = allPlayerIds.filter(id => id.startsWith('cpu'));
-
+  const allClientIds = players.value.map(p => p.id);          // ['uuid', 'cpu1', ...]
   const cardsToInsert = [];
-  const cpuHands = Object.fromEntries(cpuPlayerIds.map(id => [id, []]));
+  const cpuHands = {};                                        // 로컬 캐시 유지
+
+  for (const id of allClientIds) if (id.startsWith('cpu')) cpuHands[id] = [];
 
   for (let i = 0; i < totalCards; i++) {
-    const playerId = allPlayerIds[i % playerCount];
+    const clientId = allClientIds[i % playerCount];
     const tile = tiles[i];
 
-    const card = {
+    const ownerParticipantId = participantIdMap[clientId];    // ✅ FK 대상
+    cardsToInsert.push({
       game_id: gameId,
+      owner_id: ownerParticipantId,
       suit: tile.suit,
-      rank: tile.number.toString(),
+      rank: String(tile.number),
       in_hand: true,
-    };
+    });
 
-    if (realPlayerIds.includes(playerId)) {
-      card.owner_id = playerId;
-      cardsToInsert.push(card);
-    } else if (cpuPlayerIds.includes(playerId)) {
-      const uuid = toCpuUUID(playerId);  // 올바른 UUID 변환
-      card.owner_id = uuid;
-      cardsToInsert.push(card);
-      cpuHands[playerId].push(tile);     // CPU 로컬 저장용
-    }
+    if (clientId.startsWith('cpu')) cpuHands[clientId].push(tile);
   }
 
   const { error } = await supabase.from('lo_cards').insert(cardsToInsert);
-  if (error) {
-    console.error('카드 대량 삽입 오류:', error);
-    throw error;
-  }
+  if (error) throw error;
 
+  // CPU 로컬 패 갱신(화면용)
   for (const cpuId in cpuHands) {
     gameStore.setCpuHand(cpuId, cpuHands[cpuId]);
   }
-
-  console.log(`${playerCount}인 게임: ${totalCards}장 분배 완료`);
 }
 
 async function leaveRoom() {
@@ -1122,50 +1131,22 @@ async function addRoomCreatorAsPlayer(creatorId) {
 }
 
 async function findPlayerWithCloud3(gameId) {
-  try {
-    console.log('🔍 cloud 3 플레이어 검색 시작:', gameId)
-    
-    // cloud 3을 가진 실제 플레이어 찾기 (렉시오 규칙)
-    const { data, error } = await supabase
-      .from('lo_cards')
-      .select('owner_id')
-      .eq('game_id', gameId)
-      .eq('suit', 'cloud')
-      .eq('rank', '3')
-      .eq('in_hand', true)
-    
-    console.log('📊 cloud 3 검색 결과:', { data, error })
-    
-    if (error) {
-      console.error('cloud 3 검색 오류:', error)
-      // 오류 발생 시 첫 번째 실제 플레이어로 설정
-      const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
-      console.log('⚠️ 오류로 인한 대체 플레이어:', firstRealPlayer?.id)
-      return firstRealPlayer?.id || players.value[0]?.id
-    }
-    
-    if (!data || data.length === 0) {
-      console.log('cloud 3을 가진 플레이어가 없습니다.')
-      console.log('📋 현재 플레이어 목록:', players.value.map(p => ({ id: p.id, email: p.email })))
-      // cloud 3이 없으면 첫 번째 실제 플레이어로 설정
-      const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
-      console.log('⚠️ cloud 3 없음으로 인한 대체 플레이어:', firstRealPlayer?.id)
-      return firstRealPlayer?.id || players.value[0]?.id
-    }
-    
-    // 첫 번째 결과 사용 (single() 대신 배열의 첫 번째 요소)
-    const ownerId = data[0].owner_id
-    
-    // cloud 3을 가진 플레이어가 누구든 그 플레이어가 첫 턴을 가짐 (렉시오 규칙)
-    console.log('cloud 3을 가진 플레이어:', ownerId, '이(가) 첫 턴을 가집니다.')
-    return ownerId
-    
-  } catch (err) {
-    console.error('cloud 3 플레이어 찾기 오류:', err)
-    // 오류 발생 시 첫 번째 실제 플레이어로 설정
-    const firstRealPlayer = players.value.find(p => !p.id.startsWith('cpu'))
-    console.log('⚠️ 예외로 인한 대체 플레이어:', firstRealPlayer?.id)
-    return firstRealPlayer?.id || players.value[0]?.id
+  const { data, error } = await supabase
+    .from('lo_cards')
+    .select('owner_id, participants:owner_id (user_id, cpu_tag)')
+    .eq('game_id', gameId)
+    .eq('suit', 'cloud')
+    .eq('rank', '3')
+    .eq('in_hand', true);
+
+  if (error || !data || data.length === 0) {
+    const firstReal = players.value.find(p => !p.id.startsWith('cpu'));
+    return firstReal?.id || players.value[0]?.id;
   }
+
+  // 카드 소유자 → user/cpu 식별 ID로 환원
+  const row = data[0];
+  const p = row.participants;
+  return p?.user_id || p?.cpu_tag || players.value[0]?.id;
 }
 </script> 
