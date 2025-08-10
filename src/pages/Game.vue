@@ -828,11 +828,11 @@ async function startGame() {
     // 3) 분배 시 owner_id = participantIdMap[clientId]
     await distributeCards(gameData.id, participantIdMap);
 
-    const firstTurnPlayerId = await findPlayerWithCloud3(gameData.id);
+    const firstTurnParticipantId  = await findPlayerWithCloud3(gameData.id);
 
     await supabase
       .from('lo_games')
-      .update({ current_turn_user_id: firstTurnPlayerId, status: 'playing', started_at: new Date().toISOString() })
+      .update({ current_turn_user_id: firstTurnParticipantId, status: 'playing', started_at: new Date().toISOString() })
       .eq('id', gameData.id);
 
     await supabase
@@ -1152,20 +1152,27 @@ async function addRoomCreatorAsPlayer(creatorId) {
 async function findPlayerWithCloud3(gameId) {
   const { data, error } = await supabase
     .from('lo_cards')
-    .select('owner_id, participants:owner_id (user_id, cpu_tag)')
+    .select('owner_id') // ← owner_id = participants.id (UUID)
     .eq('game_id', gameId)
     .eq('suit', 'cloud')
     .eq('rank', '3')
-    .eq('in_hand', true);
+    .eq('in_hand', true)
+    .limit(1);
 
   if (error || !data || data.length === 0) {
-    const firstReal = players.value.find(p => !p.id.startsWith('cpu'));
-    return firstReal?.id || players.value[0]?.id;
+    // fallback: 첫 실유저의 참가자ID로 대체해야 하지만, 여기서는
+    // startGame()에서 만든 participantIdMap을 갖고 있을 때 쓰는 게 안전합니다.
+    // 당장 최소 수정으로는 첫 번째 플레이어의 참가자ID를 다시 조회해 반환하세요.
+    const { data: anyCard } = await supabase
+      .from('lo_cards')
+      .select('owner_id')
+      .eq('game_id', gameId)
+      .limit(1);
+    return anyCard?.[0]?.owner_id ?? null;
   }
 
-  // 카드 소유자 → user/cpu 식별 ID로 환원
-  const row = data[0];
-  const p = row.participants;
-  return p?.user_id || p?.cpu_tag || players.value[0]?.id;
+  // ✅ 참가자 UUID 반환
+  return data[0].owner_id;
 }
+
 </script> 
