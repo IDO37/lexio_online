@@ -168,30 +168,45 @@ async function joinRoom(room) {
 
   try {
     const { error: upsertErr } = await supabase
-      .from('lo_room_players')
-      .upsert(
-        { room_id: room.id, user_id: auth.user.id, joined_at: new Date().toISOString() },
-        { onConflict: 'room_id,user_id', ignoreDuplicates: true }
-      );
+    .from('lo_room_players')
+    .upsert(
+      { room_id: room.id, user_id: auth.user.id, joined_at: new Date().toISOString() },
+      { onConflict: 'room_id,user_id', ignoreDuplicates: true }
+    );
 
-    if (upsertErr) {
-      // 다른 오류만 노출
-      alert('방 입장 실패: ' + upsertErr.message);
-      return;
-    }
+  if (upsertErr) {
+    alert('방 입장 실패: ' + upsertErr.message);
+    return;
+  }
 
-    // 인원수 업데이트도 안전하게: 현재 인원 카운트로 맞춰 쓰기
-    const { count } = await supabase
-      .from('lo_room_players')
-      .select('*', { count: 'exact', head: true })
-      .eq('room_id', room.id);
+  // (2) RLS 가시성 확인용 SELECT (멤버십 반영되어 읽혀야 정상)
+  //    최대 5회, 200ms 간격 재시도
+  let ok = false;
+  for (let i = 0; i < 5; i++) {
+    const { data } = await supabase
+      .from('lo_rooms')
+      .select('id')
+      .eq('id', room.id)
+      .single();
+    if (data?.id) { ok = true; break; }
+    await new Promise(r => setTimeout(r, 200));
+  }
+  if (!ok) {
+    alert('방 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.');
+    return;
+  }
 
-    if (typeof count === 'number') {
-      await supabase.from('lo_rooms').update({ players: count }).eq('id', room.id);
-    }
+  // (3) 인원수 동기화(선택)
+  const { count } = await supabase
+    .from('lo_room_players')
+    .select('*', { count: 'exact', head: true })
+    .eq('room_id', room.id);
+  if (typeof count === 'number') {
+    await supabase.from('lo_rooms').update({ players: count }).eq('id', room.id);
+  }
 
-    // 게임 화면으로 이동
-    router.push(`/game/${room.id}`);
+  // (4) 라우팅
+  router.push(`/game/${room.id}`);
   } catch (err) {
     console.error('방 입장 중 오류:', err);
     alert('방 입장 중 오류가 발생했습니다.');
