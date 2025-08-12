@@ -167,37 +167,27 @@ async function joinRoom(room) {
   }
 
   try {
-    // lo_room_players 테이블에 참여 정보 삽입
-    const { error: joinError } = await supabase
+    const { error: upsertErr } = await supabase
       .from('lo_room_players')
-      .insert({
-        room_id: room.id,
-        user_id: auth.user.id,
-        joined_at: new Date().toISOString(),
-      });
+      .upsert(
+        { room_id: room.id, user_id: auth.user.id, joined_at: new Date().toISOString() },
+        { onConflict: 'room_id,user_id', ignoreDuplicates: true }
+      );
 
-    if (joinError) {
-      // 이미 들어가 있다면 무시
-      if (joinError.code !== '23505') {
-        alert('방 입장 실패: ' + joinError.message);
-        return;
-      }
-    } else {
-      // insert가 성공한 경우에만 안전하게 서버측 증가
-      await supabase.rpc('inc_room_players', { rid: room.id });
-    }
-    
-
-    // 방 참여 인원 증가
-    const currentPlayers = Number(room.players || 0);
-    const { error: updateError } = await supabase
-      .from('lo_rooms')
-      .update({ players: currentPlayers + 1 })
-      .eq('id', room.id);
-
-    if (updateError) {
-      alert('플레이어 수 업데이트 실패: ' + updateError.message);
+    if (upsertErr) {
+      // 다른 오류만 노출
+      alert('방 입장 실패: ' + upsertErr.message);
       return;
+    }
+
+    // 인원수 업데이트도 안전하게: 현재 인원 카운트로 맞춰 쓰기
+    const { count } = await supabase
+      .from('lo_room_players')
+      .select('*', { count: 'exact', head: true })
+      .eq('room_id', room.id);
+
+    if (typeof count === 'number') {
+      await supabase.from('lo_rooms').update({ players: count }).eq('id', room.id);
     }
 
     // 게임 화면으로 이동
