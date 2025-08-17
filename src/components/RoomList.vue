@@ -157,65 +157,74 @@ async function joinRoom(room) {
     return;
   }
 
-  // 비밀번호 확인
   if (!room.is_public && room.password) {
-    const password = prompt('비밀번호를 입력하세요:');
-    if (!password || password !== room.password) {
+    const pw = prompt('비밀번호를 입력하세요:');
+    if (!pw || pw !== room.password) {
       alert('비밀번호가 올바르지 않습니다.');
       return;
     }
   }
 
   try {
-    // (1) 방-플레이어 인서트
-    const { error: insertErr } = await supabase
+    // 1) INSERT (select 반환 안 받음)
+    const payload = {
+      room_id: room.id,
+      user_id: auth.user.id,
+      joined_at: new Date().toISOString(),
+    };
+    const { error: insErr } = await supabase
       .from('lo_room_players')
-      .insert({
-        room_id: room.id,
-        user_id: auth.user.id,
-        joined_at: new Date().toISOString(),
-      });
+      .insert(payload);
 
-    if (insertErr && insertErr.code !== '23505') {
-      console.error('[joinRoom] insert error', insertErr);
-      alert('방 입장 실패: ' + insertErr.message);
-      return;
+    // 2) 중복(23505/409)은 이미 참여 중이므로 무시하고 진행
+    if (insErr) {
+      const isDup =
+        insErr.code === '23505' ||
+        insErr.message?.toLowerCase().includes('duplicate') ||
+        insErr.code === '409'; // 일부 SDK에서 status만 올 때 대비
+      if (!isDup) {
+        // RLS(403) 등 진짜 오류는 노출
+        alert('방 입장 실패: ' + (insErr.message || insErr.code));
+        return;
+      }
     }
 
-    // (2) RLS 가시성 확인용 SELECT (최대 5회 재시도)
-    let ok = false;
+    // 3) 내 멤버십 보이는지 확인(최대 5회, 200ms 간격)
+    let visible = false;
     for (let i = 0; i < 5; i++) {
       const { data, error } = await supabase
-        .from('lo_rooms')
-        .select('id')
-        .eq('id', room.id)
-        .maybeSingle();   // ⚠️ single → maybeSingle로 변경
-      if (error) console.warn('[joinRoom] retry select error', error);
-      if (data?.id) { ok = true; break; }
+        .from('lo_room_players')
+        .select('room_id')
+        .eq('room_id', room.id)
+        .eq('user_id', auth.user.id)
+        .maybeSingle(); // 0/1건 허용
+      if (data?.room_id) { visible = true; break; }
       await new Promise(r => setTimeout(r, 200));
     }
-    if (!ok) {
+    if (!visible) {
       alert('방 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.');
       return;
     }
 
-    // (3) 인원수 동기화
-    const { count } = await supabase
-      .from('lo_room_players')
-      .select('*', { count: 'exact', head: true })
-      .eq('room_id', room.id);
-    if (typeof count === 'number') {
-      await supabase.from('lo_rooms').update({ players: count }).eq('id', room.id);
-    }
+    // 4) (선택) 인원수 동기화는 생략 or 실패 무시
+    // try {
+    //   const { count } = await supabase
+    //     .from('lo_room_players')
+    //     .select('*', { count: 'exact', head: true })
+    //     .eq('room_id', room.id);
+    //   if (typeof count === 'number') {
+    //     await supabase.from('lo_rooms').update({ players: count }).eq('id', room.id);
+    //   }
+    // } catch {}
 
-    // (4) 라우팅
+    // 5) 라우팅
     router.push(`/game/${room.id}`);
-
   } catch (err) {
-    console.error('방 입장 중 오류:', err);
+    console.error('[joinRoom] unexpected error', err);
     alert('방 입장 중 오류가 발생했습니다.');
   }
 }
+
 
 
 </script>
