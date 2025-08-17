@@ -226,7 +226,6 @@ async function joinRoom(room) {
 }
 
 
-
 </script>
 
 <style scoped>
