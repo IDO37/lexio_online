@@ -167,21 +167,20 @@ async function joinRoom(room) {
   }
 
   try {
-    // (1) 방-플레이어 업서트
-    const { data: upsertData, error: upsertErr } = await supabase
+    // (1) 방-플레이어 인서트
+    const { error: insertErr } = await supabase
       .from('lo_room_players')
-      .upsert(
-        { room_id: room.id, user_id: auth.user.id, joined_at: new Date().toISOString() },
-        { onConflict: 'room_id,user_id' }
-      )
-      .select();   // ⚠️ 여기서 .single() 제거 → 다중행 가능성 허용
+      .insert({
+        room_id: room.id,
+        user_id: auth.user.id,
+        joined_at: new Date().toISOString(),
+      });
 
-    if (upsertErr) {
-      console.error('[joinRoom] upsert error', upsertErr);
-      alert('방 입장 실패: ' + upsertErr.message);
+    if (insertErr && insertErr.code !== '23505') {
+      console.error('[joinRoom] insert error', insertErr);
+      alert('방 입장 실패: ' + insertErr.message);
       return;
     }
-    console.log('[joinRoom] upsert ok', upsertData);
 
     // (2) RLS 가시성 확인용 SELECT (최대 5회 재시도)
     let ok = false;
