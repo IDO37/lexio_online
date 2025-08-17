@@ -167,94 +167,57 @@ async function joinRoom(room) {
   }
 
   try {
-    console.log('[joinRoom] start', { roomId: room.id, userId: auth.user.id });
-
-    // 1) 멤버십 업서트 (중복 무시)
-    const { error: upsertErr } = await supabase
+    // (1) 방-플레이어 업서트
+    const { data: upsertData, error: upsertErr } = await supabase
       .from('lo_room_players')
       .upsert(
-        [{ room_id: room.id, user_id: auth.user.id, joined_at: new Date().toISOString() }],
-        { onConflict: 'room_id,user_id', ignoreDuplicates: true }
+        { room_id: room.id, user_id: auth.user.id, joined_at: new Date().toISOString() },
+        { onConflict: 'room_id,user_id' }
       )
-      .select('room_id, user_id') // RLS에 막히면 여기서 즉시 에러 확인 가능
-      .single();
+      .select();   // ⚠️ 여기서 .single() 제거 → 다중행 가능성 허용
 
     if (upsertErr) {
       console.error('[joinRoom] upsert error', upsertErr);
       alert('방 입장 실패: ' + upsertErr.message);
       return;
     }
-    console.log('[joinRoom] upsert done');
+    console.log('[joinRoom] upsert ok', upsertData);
 
-    // 2) 멤버십 가시성 확인 (RLS 포함해서 실제로 보이는지 5회 재시도)
-    let memberOk = false;
-    for (let i = 0; i < 5; i++) {
-      const { data: memberRow, error: memberErr } = await supabase
-        .from('lo_room_players')
-        .select('room_id')
-        .eq('room_id', room.id)
-        .eq('user_id', auth.user.id)
-        .maybeSingle();
-      if (memberErr) console.warn('[joinRoom] membership check err', memberErr);
-      if (memberRow?.room_id) { memberOk = true; break; }
-      await new Promise(r => setTimeout(r, 150));
-    }
-    if (!memberOk) {
-      console.warn('[joinRoom] membership not visible yet (RLS?)');
-      // 계속 진행은 하지만, 아래 room SELECT 재시도에서 최종 판단
-    }
-
-    // 3) 방 SELECT 가시성 확보까지 재시도 (최대 8회)
+    // (2) RLS 가시성 확인용 SELECT (최대 5회 재시도)
     let ok = false;
-    let lastErr = null;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 5; i++) {
       const { data, error } = await supabase
         .from('lo_rooms')
-        .select('id,status,created_by,players,is_public')
+        .select('id')
         .eq('id', room.id)
-        .maybeSingle();
-
-      if (error) {
-        lastErr = error;
-        console.warn('[joinRoom] room select err', error);
-      }
+        .maybeSingle();   // ⚠️ single → maybeSingle로 변경
+      if (error) console.warn('[joinRoom] retry select error', error);
       if (data?.id) { ok = true; break; }
       await new Promise(r => setTimeout(r, 200));
     }
-
     if (!ok) {
-      console.error('[joinRoom] room still not visible', lastErr);
       alert('방 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.');
       return;
     }
 
-    // 4) (선택) 플레이어 수 동기화 — 실패해도 진행
-    try {
-      const { count, error: cntErr } = await supabase
-        .from('lo_room_players')
-        .select('*', { count: 'exact', head: true })
-        .eq('room_id', room.id);
-      if (!cntErr && typeof count === 'number') {
-        const { error: updErr } = await supabase
-          .from('lo_rooms')
-          .update({ players: count })
-          .eq('id', room.id);
-        if (updErr) console.warn('[joinRoom] players count update err', updErr);
-      } else if (cntErr) {
-        console.warn('[joinRoom] count err', cntErr);
-      }
-    } catch (e) {
-      console.warn('[joinRoom] count sync failed', e);
+    // (3) 인원수 동기화
+    const { count } = await supabase
+      .from('lo_room_players')
+      .select('*', { count: 'exact', head: true })
+      .eq('room_id', room.id);
+    if (typeof count === 'number') {
+      await supabase.from('lo_rooms').update({ players: count }).eq('id', room.id);
     }
 
-    // 5) 라우팅
-    console.log('[joinRoom] navigate to room', room.id);
+    // (4) 라우팅
     router.push(`/game/${room.id}`);
+
   } catch (err) {
     console.error('방 입장 중 오류:', err);
     alert('방 입장 중 오류가 발생했습니다.');
   }
 }
+
 
 </script>
 
